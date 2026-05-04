@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Mic, MicOff, Volume2 } from "lucide-react";
+import { Mic, MicOff, Send, Sparkles, Volume2 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -22,6 +22,11 @@ type GeneratedBacklog = {
   items: BacklogItem[];
 };
 
+type ConversationMessage = {
+  role: "user" | "assistant";
+  content: string;
+};
+
 const COLUMNS: Array<BacklogItem["column"]> = ["TODO", "IN_PROGRESS", "DONE"];
 
 const mediaMimeType = () => {
@@ -34,10 +39,12 @@ const mediaMimeType = () => {
 };
 
 export function AIBacklogKanban() {
-  const [prompt, setPrompt] = useState("");
+  const [composer, setComposer] = useState("");
+  const [messages, setMessages] = useState<ConversationMessage[]>([]);
   const [backlog, setBacklog] = useState<GeneratedBacklog | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [pendingReply, setPendingReply] = useState(false);
+  const [extractingBacklog, setExtractingBacklog] = useState(false);
   const [recording, setRecording] = useState(false);
   const [voiceStatus, setVoiceStatus] = useState<string | null>(null);
   const [lastTranscript, setLastTranscript] = useState<string | null>(null);
@@ -48,6 +55,11 @@ export function AIBacklogKanban() {
   const chunksRef = useRef<Blob[]>([]);
   const currentAudioUrlRef = useRef<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const chatEndRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [messages, pendingReply]);
 
   useEffect(() => {
     return () => {
@@ -68,14 +80,11 @@ export function AIBacklogKanban() {
     return seed;
   }, [backlog]);
 
-  const speakBacklogSummary = async (generated: GeneratedBacklog) => {
-    const topItems = generated.items.slice(0, 3).map((item) => item.title).join(", ");
-    const voiceSummary = `${generated.projectName}. ${generated.overview}. Top backlog cards: ${topItems}.`;
-
+  const speakText = async (text: string) => {
     const response = await fetch("/api/ai/voice/speak", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: voiceSummary }),
+      body: JSON.stringify({ text }),
     });
 
     if (!response.ok) {
@@ -95,48 +104,6 @@ export function AIBacklogKanban() {
     await audio.play();
   };
 
-  const generateBacklog = async (customPrompt?: string, options?: { fromVoice?: boolean }) => {
-    const effectivePrompt = customPrompt ?? prompt;
-    if (effectivePrompt.trim().length < 20) {
-      setError("Please share a bit more detail to generate backlog cards.");
-      return;
-    }
-
-    setLoading(true);
-    setError(null);
-
-    try {
-      const response = await fetch("/api/ai/backlog", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: effectivePrompt }),
-      });
-      const payload = await response.json();
-      if (!response.ok || !payload.ok) {
-        throw new Error(payload.error ?? "Unable to generate backlog");
-      }
-
-      const generated = payload.backlog as GeneratedBacklog;
-      setBacklog(generated);
-
-      if (options?.fromVoice && autoVoiceReply) {
-        setVoiceStatus("Speaking card summary...");
-        await speakBacklogSummary(generated);
-      }
-
-      if (options?.fromVoice) {
-        setVoiceStatus("Voice backlog generated.");
-      }
-    } catch (fetchError) {
-      setError(fetchError instanceof Error ? fetchError.message : "Something went wrong");
-      if (options?.fromVoice) {
-        setVoiceStatus("Voice flow failed.");
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const transcribeRecording = async (blob: Blob) => {
     const form = new FormData();
     const fileType = blob.type || "audio/webm";
@@ -153,6 +120,94 @@ export function AIBacklogKanban() {
     }
 
     return payload.transcript as string;
+  };
+
+  const sendTurn = async (input: string, options?: { fromVoice?: boolean }) => {
+    const clean = input.trim();
+    if (clean.length < 2) {
+      setError("Please provide a bit more detail.");
+      return;
+    }
+
+    setError(null);
+    setPendingReply(true);
+    setComposer("");
+
+    const baseMessages = [...messages];
+    const nextMessages: ConversationMessage[] = [...baseMessages, { role: "user", content: clean }];
+    setMessages(nextMessages);
+
+    try {
+      const response = await fetch("/api/ai/voice/conversation", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          messages: baseMessages,
+          userMessage: clean,
+        }),
+      });
+
+      const payload = await response.json();
+      if (!response.ok || !payload.ok) {
+        throw new Error(payload.error ?? "Conversation failed");
+      }
+
+      const assistantReply = (payload.reply as string).trim();
+      const updatedMessages: ConversationMessage[] = [...nextMessages, { role: "assistant", content: assistantReply }];
+      setMessages(updatedMessages);
+
+      if (options?.fromVoice) {
+        setVoiceStatus("Voice response ready.");
+      }
+
+      if (options?.fromVoice && autoVoiceReply) {
+        setVoiceStatus("Speaking...");
+        await speakText(assistantReply);
+        setVoiceStatus("Voice response ready.");
+      }
+    } catch (sendError) {
+      setError(sendError instanceof Error ? sendError.message : "Conversation failed");
+      if (options?.fromVoice) {
+        setVoiceStatus("Voice conversation failed.");
+      }
+    } finally {
+      setPendingReply(false);
+    }
+  };
+
+  const extractBacklogFromConversation = async () => {
+    if (messages.length < 2) {
+      setError("Have a short conversation first, then extract Kanban tickets.");
+      return;
+    }
+
+    setError(null);
+    setExtractingBacklog(true);
+
+    try {
+      const response = await fetch("/api/ai/backlog/from-conversation", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messages }),
+      });
+      const payload = await response.json();
+
+      if (!response.ok || !payload.ok) {
+        throw new Error(payload.error ?? "Unable to extract backlog");
+      }
+
+      const generated = payload.backlog as GeneratedBacklog;
+      setBacklog(generated);
+
+      if (autoVoiceReply) {
+        const summary = `I extracted ${generated.items.length} Kanban tickets for ${generated.projectName}.`;
+        await speakText(summary);
+      }
+    } catch (extractError) {
+      setError(extractError instanceof Error ? extractError.message : "Unable to extract backlog");
+    } finally {
+      setExtractingBacklog(false);
+    }
   };
 
   const stopRecording = () => {
@@ -198,10 +253,9 @@ export function AIBacklogKanban() {
           setVoiceStatus("Transcribing...");
           const transcript = await transcribeRecording(recordingBlob);
           setLastTranscript(transcript);
-          setPrompt((prev) => (prev.trim() ? `${prev.trim()}\n${transcript}` : transcript));
 
-          setVoiceStatus("Generating backlog cards...");
-          await generateBacklog(transcript, { fromVoice: true });
+          setVoiceStatus("Sending to conversation...");
+          await sendTurn(transcript, { fromVoice: true });
         } catch (transcribeError) {
           setVoiceStatus("Voice flow failed.");
           setError(transcribeError instanceof Error ? transcribeError.message : "Voice processing failed");
@@ -219,7 +273,7 @@ export function AIBacklogKanban() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>AI-Assisted Backlog Builder</CardTitle>
+        <CardTitle>AI Voice Conversation + Kanban Extraction</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="space-y-3 rounded-[1rem] border border-white/8 bg-white/[0.03] p-4">
@@ -228,7 +282,7 @@ export function AIBacklogKanban() {
               type="button"
               onClick={recording ? stopRecording : startRecording}
               variant={recording ? "destructive" : "secondary"}
-              disabled={loading}
+              disabled={pendingReply || extractingBacklog}
             >
               {recording ? (
                 <>
@@ -238,21 +292,33 @@ export function AIBacklogKanban() {
               ) : (
                 <>
                   <Mic className="h-4 w-4" />
-                  Start Voice Backlog Chat
+                  Talk to AI
                 </>
               )}
             </Button>
+
             <Button
               type="button"
               variant={autoVoiceReply ? "secondary" : "outline"}
               onClick={() => setAutoVoiceReply((prev) => !prev)}
-              disabled={loading}
+              disabled={pendingReply || extractingBacklog}
             >
               <Volume2 className="h-4 w-4" />
               {autoVoiceReply ? "Voice Reply On" : "Voice Reply Off"}
             </Button>
+
+            <Button
+              type="button"
+              onClick={extractBacklogFromConversation}
+              disabled={pendingReply || extractingBacklog || messages.length < 2}
+            >
+              <Sparkles className="h-4 w-4" />
+              {extractingBacklog ? "Extracting..." : "Extract Kanban From Conversation"}
+            </Button>
+
             {voiceStatus ? <Badge variant="outline">{voiceStatus}</Badge> : null}
           </div>
+
           {lastTranscript ? (
             <p className="text-xs text-white/58">
               Last transcript: <span className="text-white/80">{lastTranscript}</span>
@@ -260,16 +326,70 @@ export function AIBacklogKanban() {
           ) : null}
         </div>
 
-        <Textarea
-          rows={4}
-          placeholder="Describe your app idea, target users, and must-have features..."
-          value={prompt}
-          onChange={(event) => setPrompt(event.target.value)}
-        />
-        <Button onClick={() => generateBacklog()} disabled={loading || prompt.length < 20}>
-          {loading ? "Generating backlog..." : "Build Kanban backlog with AI"}
-        </Button>
+        <div className="h-72 space-y-3 overflow-y-auto rounded-[1rem] border border-white/8 bg-black/20 p-4">
+          {messages.length === 0 ? (
+            <p className="text-sm text-white/50">
+              Start speaking or type a message. Have a normal conversation about goals, features, users, constraints, and rollout details.
+            </p>
+          ) : (
+            messages.map((message, index) => (
+              <div
+                key={`${message.role}-${index}`}
+                className={`max-w-[90%] rounded-[0.9rem] px-3 py-2 text-sm ${
+                  message.role === "user"
+                    ? "ml-auto border border-emerald-400/20 bg-emerald-500/10 text-emerald-100"
+                    : "mr-auto border border-white/8 bg-white/[0.04] text-white/80"
+                }`}
+              >
+                <p className="mb-1 text-[10px] uppercase tracking-widest opacity-60">
+                  {message.role === "user" ? "You" : "DevPilot AI"}
+                </p>
+                <p className="whitespace-pre-wrap leading-relaxed">{message.content}</p>
+              </div>
+            ))
+          )}
+          {pendingReply ? (
+            <div className="mr-auto max-w-[90%] rounded-[0.9rem] border border-white/8 bg-white/[0.04] px-3 py-2 text-sm text-white/60">
+              DevPilot AI is thinking...
+            </div>
+          ) : null}
+          <div ref={chatEndRef} />
+        </div>
+
+        <div className="space-y-2">
+          <Textarea
+            rows={3}
+            placeholder="Send a message to continue the conversation..."
+            value={composer}
+            onChange={(event) => setComposer(event.target.value)}
+          />
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              onClick={() => sendTurn(composer)}
+              disabled={pendingReply || extractingBacklog || composer.trim().length < 2}
+            >
+              <Send className="h-4 w-4" />
+              Send Message
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setMessages([]);
+                setBacklog(null);
+                setLastTranscript(null);
+                setError(null);
+                setVoiceStatus(null);
+              }}
+              disabled={pendingReply || extractingBacklog}
+            >
+              Clear Conversation
+            </Button>
+          </div>
+        </div>
+
         {error ? <p className="text-sm text-rose-300">{error}</p> : null}
+
         {backlog ? (
           <div className="space-y-3">
             <div>

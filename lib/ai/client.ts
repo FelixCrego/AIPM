@@ -50,6 +50,46 @@ export const runStructuredOutput = async <T>({
   return schema.parse(parsed);
 };
 
+export type ConversationMessage = {
+  role: "user" | "assistant";
+  content: string;
+};
+
+export const runConversationReply = async ({
+  messages,
+  userMessage,
+}: {
+  messages: ConversationMessage[];
+  userMessage: string;
+}): Promise<string | null> => {
+  if (!openai) {
+    return null;
+  }
+
+  const completion = await openai.chat.completions.create({
+    model: process.env.OPENAI_MODEL ?? "gpt-4.1-mini",
+    temperature: 0.35,
+    messages: [
+      {
+        role: "system",
+        content:
+          `${AI_OPERATOR_STYLE}\nYou are in voice conversation mode. Keep replies concise, ask one clarifying question when needed, and keep context for later ticket extraction.`,
+      },
+      ...messages.map((message) => ({
+        role: message.role,
+        content: message.content,
+      })),
+      {
+        role: "user",
+        content: userMessage,
+      },
+    ],
+  });
+
+  const content = completion.choices[0]?.message?.content?.trim();
+  return content || null;
+};
+
 export const transcribeAudioToText = async (audio: File): Promise<string | null> => {
   if (!openai) {
     return null;
