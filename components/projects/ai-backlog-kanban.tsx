@@ -519,7 +519,7 @@ export function AIBacklogKanban() {
                   {grouped[column].map((item) => (
                     <article key={`${column}-${item.title}`} className="space-y-2 rounded-[0.9rem] border border-white/8 bg-black/20 p-3">
                       <p className="text-sm font-medium text-white">{item.title}</p>
-                      <p className="text-xs text-white/56">{item.summary}</p>
+                      <p className="text-xs whitespace-pre-line text-white/56">{item.summary}</p>
                       <div className="flex items-center justify-between">
                         <Badge variant="secondary">{item.priority}</Badge>
                         <span className="text-xs text-white/46">{item.estimate}</span>
