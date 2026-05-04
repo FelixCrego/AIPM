@@ -185,10 +185,17 @@ export function AIBacklogKanban() {
     setExtractingBacklog(true);
 
     try {
+      const extractPayload = messages
+        .slice(-40)
+        .map((message) => ({
+          role: message.role,
+          content: message.content.slice(0, 1200),
+        }));
+
       const response = await fetch("/api/ai/backlog/from-conversation", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages }),
+        body: JSON.stringify({ messages: extractPayload }),
       });
       const payload = await response.json();
 
@@ -201,7 +208,11 @@ export function AIBacklogKanban() {
 
       if (autoVoiceReply) {
         const summary = `I extracted ${generated.items.length} Kanban tickets for ${generated.projectName}.`;
-        await speakText(summary);
+        try {
+          await speakText(summary);
+        } catch {
+          setVoiceStatus("Backlog extracted. Voice summary unavailable.");
+        }
       }
     } catch (extractError) {
       setError(extractError instanceof Error ? extractError.message : "Unable to extract backlog");
