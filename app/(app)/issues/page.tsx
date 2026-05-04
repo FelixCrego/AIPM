@@ -33,11 +33,11 @@ export default async function IssuesPage() {
 
   return (
     <div className="space-y-4">
-      <Card className="border-slate-200 bg-white/85">
+      <Card>
         <CardHeader className="flex flex-row items-start justify-between gap-4">
           <div>
             <CardTitle>Issues</CardTitle>
-            <p className="mt-1 text-sm text-slate-600">Create an issue from AI-generated task framing.</p>
+            <p className="mt-1 text-sm text-white/62">Create an issue from AI-generated task framing.</p>
           </div>
           {firstRepo ? (
             <AsyncActionButton
@@ -56,7 +56,7 @@ export default async function IssuesPage() {
         </CardHeader>
       </Card>
 
-      <Card className="border-slate-200 bg-white/85">
+      <Card>
         <CardContent className="pt-6">
           <Table>
             <TableHeader>
@@ -74,7 +74,7 @@ export default async function IssuesPage() {
             <TableBody>
               {issues.map((issue) => (
                 <TableRow key={issue.id}>
-                  <TableCell className="font-medium text-slate-900">#{issue.number} {issue.title}</TableCell>
+                  <TableCell className="font-medium text-white">#{issue.number} {issue.title}</TableCell>
                   <TableCell>{issue.repository.fullName}</TableCell>
                   <TableCell><StatusBadge value={issue.status} /></TableCell>
                   <TableCell>{issue.labels.join(", ") || "-"}</TableCell>

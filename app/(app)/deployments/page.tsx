@@ -32,7 +32,7 @@ export default async function DeploymentsPage() {
   const deployments = (await getDeployments()) as DeploymentRow[];
 
   return (
-    <Card className="border-slate-200 bg-white/85">
+    <Card>
       <CardHeader>
         <CardTitle>Vercel Deployments</CardTitle>
       </CardHeader>
@@ -55,7 +55,7 @@ export default async function DeploymentsPage() {
           <TableBody>
             {deployments.map((deployment) => (
               <TableRow key={deployment.id}>
-                <TableCell className="font-medium text-slate-900">{deployment.vercelProject.name}</TableCell>
+                <TableCell className="font-medium text-white">{deployment.vercelProject.name}</TableCell>
                 <TableCell className="max-w-56 truncate">{deployment.url}</TableCell>
                 <TableCell><StatusBadge value={deployment.state} /></TableCell>
                 <TableCell>{deployment.branch ?? "N/A"}</TableCell>

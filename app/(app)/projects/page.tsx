@@ -31,7 +31,7 @@ export default async function ProjectsPage() {
   return (
     <div className="space-y-6">
       <AIBacklogKanban />
-      <Card className="border-slate-200 bg-white/85">
+      <Card>
       <CardHeader>
         <CardTitle>Projects</CardTitle>
       </CardHeader>
@@ -51,7 +51,7 @@ export default async function ProjectsPage() {
           <TableBody>
             {projects.map((project) => (
               <TableRow key={project.id}>
-                <TableCell className="font-medium text-slate-900">{project.name}</TableCell>
+                <TableCell className="font-medium text-white">{project.name}</TableCell>
                 <TableCell>{project.status.replaceAll("_", " ")}</TableCell>
                 <TableCell>{project.priority}</TableCell>
                 <TableCell>{project.repository?.fullName ?? project.repositoryId ?? "Unlinked"}</TableCell>

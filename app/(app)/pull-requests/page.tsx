@@ -41,7 +41,7 @@ export default async function PullRequestsPage() {
   const deploymentRefs = deployments as DeploymentRef[];
 
   return (
-    <Card className="border-slate-200 bg-white/85">
+    <Card>
       <CardHeader>
         <CardTitle>Pull Requests</CardTitle>
       </CardHeader>
@@ -68,7 +68,7 @@ export default async function PullRequestsPage() {
 
               return (
                 <TableRow key={pr.id}>
-                  <TableCell className="font-medium text-slate-900">
+                  <TableCell className="font-medium text-white">
                     <Link href={`/pull-requests/${pr.id}`} className="underline-offset-2 hover:underline">
                       #{pr.number} {pr.title}
                     </Link>
@@ -78,7 +78,7 @@ export default async function PullRequestsPage() {
                   <TableCell><StatusBadge value={pr.state} /></TableCell>
                   <TableCell>{pr.changedFiles}</TableCell>
                   <TableCell>
-                    <span className="text-emerald-700">+{pr.additions}</span> / <span className="text-rose-700">-{pr.deletions}</span>
+                    <span className="text-emerald-300">+{pr.additions}</span> / <span className="text-rose-300">-{pr.deletions}</span>
                   </TableCell>
                   <TableCell><StatusBadge value={pr.aiReviewStatus} /></TableCell>
                   <TableCell>{toPercent(pr.aiRiskScore)}</TableCell>

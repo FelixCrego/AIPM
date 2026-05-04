@@ -27,7 +27,7 @@ export default async function DevelopersPage() {
   const developers = (await getDeveloperWorkload()) as DeveloperRow[];
 
   return (
-    <Card className="border-slate-200 bg-white/85">
+    <Card>
       <CardHeader>
         <CardTitle>Developer Workload</CardTitle>
       </CardHeader>
@@ -48,7 +48,7 @@ export default async function DevelopersPage() {
           <TableBody>
             {developers.map((developer) => (
               <TableRow key={developer.id}>
-                <TableCell className="font-medium text-slate-900">{developer.name}</TableCell>
+                <TableCell className="font-medium text-white">{developer.name}</TableCell>
                 <TableCell>{developer.githubUsername ?? "N/A"}</TableCell>
                 <TableCell>{developer.role}</TableCell>
                 <TableCell>{developer.strengths.join(", ")}</TableCell>

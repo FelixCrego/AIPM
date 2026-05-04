@@ -51,7 +51,7 @@ export const AsyncActionButton = ({
       <Button onClick={runAction} disabled={pending}>
         {pending ? pendingLabel ?? "Running..." : label}
       </Button>
-      {error ? <p className="text-xs text-rose-600">{error}</p> : null}
+      {error ? <p className="text-xs text-rose-300">{error}</p> : null}
     </div>
   );
 };

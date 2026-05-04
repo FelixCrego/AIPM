@@ -35,36 +35,36 @@ export default async function PullRequestDetailsPage({ params }: { params: Promi
 
   return (
     <div className="space-y-4">
-      <Card className="border-slate-200 bg-white/85">
+      <Card>
         <CardHeader className="space-y-2">
           <CardTitle>PR #{pr.number}: {pr.title}</CardTitle>
           <div className="flex flex-wrap gap-2">
             <StatusBadge value={pr.state} />
             <StatusBadge value={pr.aiReviewStatus} />
-            <span className="text-sm text-slate-600">Risk: {toPercent(pr.aiRiskScore)}</span>
+            <span className="text-sm text-white/62">Risk: {toPercent(pr.aiRiskScore)}</span>
           </div>
         </CardHeader>
-        <CardContent className="space-y-4 text-sm text-slate-700">
+        <CardContent className="space-y-4 text-sm text-white/72">
           <p>{pr.aiSummary ?? pr.body ?? "No AI summary available."}</p>
           <Separator />
           <div className="grid gap-3 sm:grid-cols-3">
             <div>
-              <p className="text-xs uppercase tracking-wide text-slate-500">Changed Files</p>
-              <p className="text-base font-semibold text-slate-900">{pr.changedFiles}</p>
+              <p className="text-xs uppercase tracking-wide text-white/42">Changed Files</p>
+              <p className="text-base font-semibold text-white">{pr.changedFiles}</p>
             </div>
             <div>
-              <p className="text-xs uppercase tracking-wide text-slate-500">Additions</p>
-              <p className="text-base font-semibold text-emerald-700">+{pr.additions}</p>
+              <p className="text-xs uppercase tracking-wide text-white/42">Additions</p>
+              <p className="text-base font-semibold text-emerald-300">+{pr.additions}</p>
             </div>
             <div>
-              <p className="text-xs uppercase tracking-wide text-slate-500">Deletions</p>
-              <p className="text-base font-semibold text-rose-700">-{pr.deletions}</p>
+              <p className="text-xs uppercase tracking-wide text-white/42">Deletions</p>
+              <p className="text-base font-semibold text-rose-300">-{pr.deletions}</p>
             </div>
           </div>
         </CardContent>
       </Card>
 
-      <Card className="border-slate-200 bg-white/85">
+      <Card>
         <CardHeader>
           <CardTitle>AI QA Review</CardTitle>
         </CardHeader>
@@ -88,8 +88,8 @@ export default async function PullRequestDetailsPage({ params }: { params: Promi
             />
           </div>
 
-          <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
-            <p className="font-medium text-slate-900">QA Checklist</p>
+          <div className="rounded-[1rem] border border-white/8 bg-white/[0.03] p-3 text-sm text-white/72">
+            <p className="font-medium text-white">QA Checklist</p>
             <ul className="mt-2 list-disc space-y-1 pl-5">
               <li>Issue behavior verified against acceptance criteria</li>
               <li>Tests updated for changed business logic</li>

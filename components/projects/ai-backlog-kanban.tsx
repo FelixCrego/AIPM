@@ -60,7 +60,7 @@ export function AIBacklogKanban() {
   };
 
   return (
-    <Card className="border-slate-200 bg-white/85">
+    <Card>
       <CardHeader>
         <CardTitle>AI-Assisted Backlog Builder</CardTitle>
       </CardHeader>
@@ -74,24 +74,24 @@ export function AIBacklogKanban() {
         <Button onClick={generateBacklog} disabled={loading || prompt.length < 20}>
           {loading ? "Generating backlog..." : "Build Kanban backlog with AI"}
         </Button>
-        {error ? <p className="text-sm text-red-600">{error}</p> : null}
+        {error ? <p className="text-sm text-rose-300">{error}</p> : null}
         {backlog ? (
           <div className="space-y-3">
             <div>
-              <h3 className="font-semibold text-slate-900">{backlog.projectName}</h3>
-              <p className="text-sm text-slate-600">{backlog.overview}</p>
+              <h3 className="font-semibold text-white">{backlog.projectName}</h3>
+              <p className="text-sm text-white/62">{backlog.overview}</p>
             </div>
             <div className="grid gap-4 md:grid-cols-3">
               {COLUMNS.map((column) => (
-                <div key={column} className="space-y-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
-                  <h4 className="text-sm font-semibold text-slate-700">{column.replaceAll("_", " ")}</h4>
+                <div key={column} className="space-y-3 rounded-[1.1rem] border border-white/8 bg-white/[0.03] p-3">
+                  <h4 className="text-sm font-semibold text-white/76">{column.replaceAll("_", " ")}</h4>
                   {grouped[column].map((item) => (
-                    <article key={`${column}-${item.title}`} className="space-y-2 rounded-md border border-slate-200 bg-white p-3">
-                      <p className="text-sm font-medium text-slate-900">{item.title}</p>
-                      <p className="text-xs text-slate-600">{item.summary}</p>
+                    <article key={`${column}-${item.title}`} className="space-y-2 rounded-[0.9rem] border border-white/8 bg-black/20 p-3">
+                      <p className="text-sm font-medium text-white">{item.title}</p>
+                      <p className="text-xs text-white/56">{item.summary}</p>
                       <div className="flex items-center justify-between">
                         <Badge variant="secondary">{item.priority}</Badge>
-                        <span className="text-xs text-slate-500">{item.estimate}</span>
+                        <span className="text-xs text-white/46">{item.estimate}</span>
                       </div>
                     </article>
                   ))}

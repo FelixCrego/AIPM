@@ -28,7 +28,7 @@ export default async function RepositoriesPage() {
   const repositories = (await getRepositories()) as RepositoryRow[];
 
   return (
-    <Card className="border-slate-200 bg-white/85">
+    <Card>
       <CardHeader>
         <CardTitle>GitHub Repositories</CardTitle>
       </CardHeader>
@@ -48,7 +48,7 @@ export default async function RepositoriesPage() {
           <TableBody>
             {repositories.map((repository) => (
               <TableRow key={repository.id}>
-                <TableCell className="font-medium text-slate-900">{repository.fullName}</TableCell>
+                <TableCell className="font-medium text-white">{repository.fullName}</TableCell>
                 <TableCell>{repository.owner}</TableCell>
                 <TableCell>{repository.defaultBranch}</TableCell>
                 <TableCell>{repository.language ?? "N/A"}</TableCell>

@@ -37,7 +37,7 @@ export default function SettingsPage() {
   });
 
   return (
-    <Card className="border-slate-200 bg-white/85">
+    <Card>
       <CardHeader>
         <CardTitle>Settings</CardTitle>
       </CardHeader>

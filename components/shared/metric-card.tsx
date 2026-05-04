@@ -9,14 +9,21 @@ export const MetricCard = ({
   value: number | string;
   hint: string;
 }) => {
+  const tone =
+    title.includes("Failed") || title.includes("Blocked")
+      ? "text-rose-300 shadow-[0_0_28px_rgba(239,68,68,0.16)]"
+      : title.includes("QA")
+        ? "text-violet-200 shadow-[0_0_28px_rgba(139,92,246,0.18)]"
+        : "text-emerald-300 shadow-[0_0_28px_rgba(0,255,133,0.12)]";
+
   return (
-    <Card className="border-slate-200/80 bg-white/80 backdrop-blur">
+    <Card className="min-h-[150px] justify-between">
       <CardHeader className="pb-2">
-        <CardTitle className="text-sm font-medium text-slate-600">{title}</CardTitle>
+        <CardTitle className="hud-label text-white/38">{title}</CardTitle>
       </CardHeader>
       <CardContent>
-        <p className="text-2xl font-semibold text-slate-900">{value}</p>
-        <p className="mt-1 text-xs text-slate-500">{hint}</p>
+        <p className={`text-3xl font-semibold tracking-tight ${tone}`}>{value}</p>
+        <p className="mt-2 max-w-[20ch] text-sm text-white/58">{hint}</p>
       </CardContent>
     </Card>
   );
