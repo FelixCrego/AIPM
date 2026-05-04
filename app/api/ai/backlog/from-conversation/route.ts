@@ -11,7 +11,7 @@ const conversationMessageSchema = z.object({
 });
 
 const extractBacklogSchema = z.object({
-  messages: z.array(conversationMessageSchema).min(2).max(80),
+  messages: z.array(conversationMessageSchema).min(1).max(120),
 });
 
 export async function POST(request: Request) {
@@ -19,8 +19,9 @@ export async function POST(request: Request) {
     const body = await request.json().catch(() => ({}));
     const { messages } = extractBacklogSchema.parse(body);
 
-    const conversationTranscript = messages
-      .map((message) => `${message.role.toUpperCase()}: ${message.content}`)
+    const trimmedMessages = messages.slice(-30);
+    const conversationTranscript = trimmedMessages
+      .map((message) => `${message.role.toUpperCase()}: ${message.content.slice(0, 1200)}`)
       .join("\n");
 
     const backlog = await generateBacklogFromProjectPrompt(
