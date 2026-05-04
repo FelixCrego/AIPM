@@ -176,8 +176,10 @@ export function AIBacklogKanban() {
   };
 
   const extractBacklogFromConversation = async () => {
-    if (messages.length < 2) {
-      setError("Have a short conversation first, then extract Kanban tickets.");
+    const hasMessageHistory = messages.length > 0;
+    const hasTranscript = !!lastTranscript?.trim();
+    if (!hasMessageHistory && !hasTranscript) {
+      setError("Speak at least one turn, then extract Kanban tickets.");
       return;
     }
 
@@ -185,12 +187,12 @@ export function AIBacklogKanban() {
     setExtractingBacklog(true);
 
     try {
-      const extractPayload = messages
-        .slice(-40)
-        .map((message) => ({
-          role: message.role,
-          content: message.content.slice(0, 1200),
-        }));
+      const extractPayload = hasMessageHistory
+        ? messages.slice(-40).map((message) => ({
+            role: message.role,
+            content: message.content.slice(0, 1200),
+          }))
+        : [{ role: "user", content: (lastTranscript ?? "").slice(0, 1200) }];
 
       const response = await fetch("/api/ai/backlog/from-conversation", {
         method: "POST",
@@ -321,7 +323,7 @@ export function AIBacklogKanban() {
             <Button
               type="button"
               onClick={extractBacklogFromConversation}
-              disabled={pendingReply || extractingBacklog || messages.length < 2}
+              disabled={pendingReply || extractingBacklog || (messages.length === 0 && !lastTranscript?.trim())}
             >
               <Sparkles className="h-4 w-4" />
               {extractingBacklog ? "Extracting..." : "Extract Kanban From Conversation"}
