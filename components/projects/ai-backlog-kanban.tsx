@@ -28,6 +28,7 @@ type ConversationMessage = {
 };
 
 const COLUMNS: Array<BacklogItem["column"]> = ["TODO", "IN_PROGRESS", "DONE"];
+const STORAGE_KEY = "devpilot_voice_backlog_conversation_v1";
 
 const mediaMimeType = () => {
   if (typeof MediaRecorder === "undefined") {
@@ -57,9 +58,106 @@ export function AIBacklogKanban() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const chatEndRef = useRef<HTMLDivElement | null>(null);
 
+  const buildLocalBacklog = (inputMessages: ConversationMessage[], transcript: string | null): GeneratedBacklog => {
+    const seedText = [
+      ...inputMessages.map((message) => message.content),
+      transcript ?? "",
+    ]
+      .join(". ")
+      .replaceAll(/\s+/g, " ")
+      .trim();
+
+    const lines = seedText
+      .split(/[.!?;\n]+/g)
+      .map((line) => line.trim())
+      .filter((line) => line.length > 16)
+      .slice(0, 8);
+
+    const selected = lines.length ? lines : ["Clarify project scope, users, and acceptance criteria from the planning conversation."];
+    const items: BacklogItem[] = selected.map((line, index) => {
+      const words = line.split(" ").filter(Boolean);
+      const title = words.slice(0, 7).join(" ").replace(/^\w/, (c) => c.toUpperCase()) || `Conversation task ${index + 1}`;
+      const lower = line.toLowerCase();
+      const priority: BacklogItem["priority"] =
+        /(auth|security|payment|database|deploy|api|critical)/.test(lower)
+          ? "HIGH"
+          : /(voice|chat|workflow|dashboard|feature)/.test(lower)
+            ? "MEDIUM"
+            : "LOW";
+      const column: BacklogItem["column"] = index < 4 ? "TODO" : index < 7 ? "IN_PROGRESS" : "DONE";
+      const estimate = priority === "HIGH" ? "5 pts" : priority === "MEDIUM" ? "3 pts" : "2 pts";
+
+      return {
+        title,
+        summary: line,
+        estimate,
+        priority,
+        column,
+      };
+    });
+
+    while (items.length < 5) {
+      items.push({
+        title: `Conversation follow-up ${items.length + 1}`,
+        summary: "Capture missing details from the voice discussion and convert into actionable acceptance criteria.",
+        estimate: "2 pts",
+        priority: "MEDIUM",
+        column: items.length < 3 ? "TODO" : "IN_PROGRESS",
+      });
+    }
+
+    return {
+      projectName: "Voice Conversation Backlog",
+      overview: "Kanban extracted from your latest voice planning conversation.",
+      items: items.slice(0, 14),
+    };
+  };
+
+  const persistConversation = (nextMessages: ConversationMessage[], transcript: string | null) => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    window.localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        messages: nextMessages.slice(-80),
+        lastTranscript: transcript ?? "",
+      }),
+    );
+  };
+
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [messages, pendingReply]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    try {
+      const raw = window.localStorage.getItem(STORAGE_KEY);
+      if (!raw) {
+        return;
+      }
+      const parsed = JSON.parse(raw) as { messages?: ConversationMessage[]; lastTranscript?: string };
+      if (Array.isArray(parsed.messages)) {
+        setMessages(
+          parsed.messages
+            .filter((message) => (message.role === "user" || message.role === "assistant") && typeof message.content === "string")
+            .slice(-80),
+        );
+      }
+      if (typeof parsed.lastTranscript === "string" && parsed.lastTranscript.trim()) {
+        setLastTranscript(parsed.lastTranscript.trim());
+      }
+    } catch {
+      // Ignore corrupt local cache and continue with fresh state.
+    }
+  }, []);
+
+  useEffect(() => {
+    persistConversation(messages, lastTranscript);
+  }, [messages, lastTranscript]);
 
   useEffect(() => {
     return () => {
@@ -217,7 +315,9 @@ export function AIBacklogKanban() {
         }
       }
     } catch (extractError) {
-      setError(extractError instanceof Error ? extractError.message : "Unable to extract backlog");
+      const localBacklog = buildLocalBacklog(messages, lastTranscript);
+      setBacklog(localBacklog);
+      setError("API extraction failed, generated cards from local conversation transcript.");
     } finally {
       setExtractingBacklog(false);
     }
@@ -393,6 +493,9 @@ export function AIBacklogKanban() {
                 setLastTranscript(null);
                 setError(null);
                 setVoiceStatus(null);
+                if (typeof window !== "undefined") {
+                  window.localStorage.removeItem(STORAGE_KEY);
+                }
               }}
               disabled={pendingReply || extractingBacklog}
             >
