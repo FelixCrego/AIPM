@@ -14,6 +14,7 @@ type BacklogItem = {
   estimate: string;
   priority: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
   column: "TODO" | "IN_PROGRESS" | "DONE";
+  commands: string[];
 };
 
 type GeneratedBacklog = {
@@ -57,61 +58,6 @@ export function AIBacklogKanban() {
   const currentAudioUrlRef = useRef<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const chatEndRef = useRef<HTMLDivElement | null>(null);
-
-  const buildLocalBacklog = (inputMessages: ConversationMessage[], transcript: string | null): GeneratedBacklog => {
-    const seedText = [
-      ...inputMessages.map((message) => message.content),
-      transcript ?? "",
-    ]
-      .join(". ")
-      .replaceAll(/\s+/g, " ")
-      .trim();
-
-    const lines = seedText
-      .split(/[.!?;\n]+/g)
-      .map((line) => line.trim())
-      .filter((line) => line.length > 16)
-      .slice(0, 8);
-
-    const selected = lines.length ? lines : ["Clarify project scope, users, and acceptance criteria from the planning conversation."];
-    const items: BacklogItem[] = selected.map((line, index) => {
-      const words = line.split(" ").filter(Boolean);
-      const title = words.slice(0, 7).join(" ").replace(/^\w/, (c) => c.toUpperCase()) || `Conversation task ${index + 1}`;
-      const lower = line.toLowerCase();
-      const priority: BacklogItem["priority"] =
-        /(auth|security|payment|database|deploy|api|critical)/.test(lower)
-          ? "HIGH"
-          : /(voice|chat|workflow|dashboard|feature)/.test(lower)
-            ? "MEDIUM"
-            : "LOW";
-      const column: BacklogItem["column"] = index < 4 ? "TODO" : index < 7 ? "IN_PROGRESS" : "DONE";
-      const estimate = priority === "HIGH" ? "5 pts" : priority === "MEDIUM" ? "3 pts" : "2 pts";
-
-      return {
-        title,
-        summary: line,
-        estimate,
-        priority,
-        column,
-      };
-    });
-
-    while (items.length < 5) {
-      items.push({
-        title: `Conversation follow-up ${items.length + 1}`,
-        summary: "Capture missing details from the voice discussion and convert into actionable acceptance criteria.",
-        estimate: "2 pts",
-        priority: "MEDIUM",
-        column: items.length < 3 ? "TODO" : "IN_PROGRESS",
-      });
-    }
-
-    return {
-      projectName: "Voice Conversation Backlog",
-      overview: "Kanban extracted from your latest voice planning conversation.",
-      items: items.slice(0, 14),
-    };
-  };
 
   const persistConversation = (nextMessages: ConversationMessage[], transcript: string | null) => {
     if (typeof window === "undefined") {
@@ -315,9 +261,7 @@ export function AIBacklogKanban() {
         }
       }
     } catch (extractError) {
-      const localBacklog = buildLocalBacklog(messages, lastTranscript);
-      setBacklog(localBacklog);
-      setError("API extraction failed, generated cards from local conversation transcript.");
+      setError(extractError instanceof Error ? extractError.message : "Unable to extract backlog");
     } finally {
       setExtractingBacklog(false);
     }
@@ -520,6 +464,16 @@ export function AIBacklogKanban() {
                     <article key={`${column}-${item.title}`} className="space-y-2 rounded-[0.9rem] border border-white/8 bg-black/20 p-3">
                       <p className="text-sm font-medium text-white">{item.title}</p>
                       <p className="text-xs whitespace-pre-line text-white/56">{item.summary}</p>
+                      {item.commands.length ? (
+                        <div className="space-y-1 rounded-md border border-white/10 bg-black/30 p-2">
+                          <p className="text-[10px] uppercase tracking-widest text-white/45">Codex CLI Commands</p>
+                          {item.commands.map((command) => (
+                            <pre key={`${item.title}-${command}`} className="overflow-x-auto text-[11px] text-emerald-200">
+                              <code>{command}</code>
+                            </pre>
+                          ))}
+                        </div>
+                      ) : null}
                       <div className="flex items-center justify-between">
                         <Badge variant="secondary">{item.priority}</Badge>
                         <span className="text-xs text-white/46">{item.estimate}</span>
