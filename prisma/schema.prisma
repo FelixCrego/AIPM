@@ -1,0 +1,407 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum UserRole {
+  ADMIN
+  MANAGER
+  DEVELOPER
+  QA
+}
+
+enum ProjectStatus {
+  PLANNING
+  IN_PROGRESS
+  BLOCKED
+  QA
+  DONE
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  BLOCKED
+  DONE
+}
+
+enum IssueState {
+  OPEN
+  CLOSED
+}
+
+enum PRState {
+  OPEN
+  CLOSED
+  MERGED
+}
+
+enum DeploymentState {
+  QUEUED
+  BUILDING
+  READY
+  ERROR
+  CANCELED
+}
+
+model User {
+  id             String    @id @default(cuid())
+  name           String?
+  email          String?   @unique
+  emailVerified  DateTime?
+  image          String?
+  role           UserRole  @default(DEVELOPER)
+  organizationId String?
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  accounts Account[]
+  sessions Session[]
+}
+
+model Organization {
+  id                     String                  @id @default(cuid())
+  name                   String
+  createdAt              DateTime                @default(now())
+  updatedAt              DateTime                @updatedAt
+
+  users                  User[]
+  projects               Project[]
+  developers             Developer[]
+  repositories           Repository[]
+  githubIssues           GitHubIssue[]
+  githubPullRequests     GitHubPullRequest[]
+  githubCommits          GitHubCommit[]
+  vercelProjects         VercelProject[]
+  vercelDeployments      VercelDeployment[]
+  aiDailyPlans           AIDailyPlan[]
+  aiQaReviews            AIQAReview[]
+  taskAssignments        TaskAssignment[]
+  projectMemories        ProjectMemory[]
+  activityLogs           ActivityLog[]
+  integrationCredentials IntegrationCredential[]
+}
+
+model Project {
+  id              String         @id @default(cuid())
+  organizationId  String
+  organization    Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  name            String
+  description     String?
+  status          ProjectStatus  @default(PLANNING)
+  priority        Priority       @default(MEDIUM)
+  businessGoal    String?
+  targetUser      String?
+  repositoryId    String?
+  repository      Repository?    @relation("ProjectRepository", fields: [repositoryId], references: [id], onDelete: SetNull)
+  vercelProjectId String?
+  vercelProject   VercelProject? @relation("ProjectVercel", fields: [vercelProjectId], references: [id], onDelete: SetNull)
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  memories ProjectMemory[]
+}
+
+model Developer {
+  id              String       @id @default(cuid())
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  name            String
+  email           String
+  githubUsername  String?
+  role            String
+  strengths       String[]
+  currentCapacity Int          @default(100)
+  isActive        Boolean      @default(true)
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  assignments TaskAssignment[]
+}
+
+model Repository {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  githubId       String       @unique
+  name           String
+  fullName       String       @unique
+  owner          String
+  defaultBranch  String
+  url            String
+  language       String?
+  isPrivate      Boolean      @default(false)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  projects     Project[]           @relation("ProjectRepository")
+  issues       GitHubIssue[]
+  pullRequests GitHubPullRequest[]
+  commits      GitHubCommit[]
+
+  @@index([organizationId])
+}
+
+model GitHubIssue {
+  id                     String       @id @default(cuid())
+  organizationId         String
+  organization           Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  repositoryId           String
+  repository             Repository   @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  githubIssueId          String       @unique
+  number                 Int
+  title                  String
+  body                   String?
+  state                  IssueState   @default(OPEN)
+  labels                 String[]
+  assignees              String[]
+  priority               Priority     @default(MEDIUM)
+  status                 TaskStatus   @default(TODO)
+  aiSummary              String?
+  aiRecommendedAssignee  String?
+  aiRiskScore            Float?
+  blockedReason          String?
+  createdAt              DateTime     @default(now())
+  updatedAt              DateTime     @updatedAt
+
+  taskAssignments TaskAssignment[]
+
+  @@unique([repositoryId, number])
+  @@index([organizationId])
+}
+
+model GitHubPullRequest {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  repositoryId   String
+  repository     Repository   @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  githubPrId     String       @unique
+  number         Int
+  title          String
+  body           String?
+  state          PRState      @default(OPEN)
+  author         String
+  branchName     String
+  baseBranch     String
+  changedFiles   Int          @default(0)
+  additions      Int          @default(0)
+  deletions      Int          @default(0)
+  mergeable      Boolean?
+  draft          Boolean      @default(false)
+  aiSummary      String?
+  aiReviewStatus String?
+  aiRiskScore    Float?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  qaReviews AIQAReview[]
+
+  @@unique([repositoryId, number])
+  @@index([organizationId])
+}
+
+model GitHubCommit {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  repositoryId   String
+  repository     Repository   @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  sha            String       @unique
+  message        String
+  author         String
+  url            String
+  committedAt    DateTime
+  createdAt      DateTime     @default(now())
+
+  @@index([organizationId])
+  @@index([repositoryId])
+}
+
+model VercelProject {
+  id                  String       @id @default(cuid())
+  organizationId      String
+  organization        Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  vercelId            String       @unique
+  name                String
+  framework           String?
+  latestDeploymentUrl String?
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
+
+  projects     Project[]           @relation("ProjectVercel")
+  deployments  VercelDeployment[]
+
+  @@index([organizationId])
+}
+
+model VercelDeployment {
+  id                 String          @id @default(cuid())
+  organizationId     String
+  organization       Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  vercelProjectId    String
+  vercelProject      VercelProject   @relation(fields: [vercelProjectId], references: [id], onDelete: Cascade)
+  vercelDeploymentId String          @unique
+  url                String
+  state              DeploymentState
+  target             String?
+  branch             String?
+  commitSha          String?
+  githubPrNumber     Int?
+  errorMessage       String?
+  aiSummary          String?
+  aiRiskScore        Float?
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+
+  qaReviews AIQAReview[]
+
+  @@index([organizationId])
+}
+
+model AIDailyPlan {
+  id              String       @id @default(cuid())
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  title           String
+  summary         String
+  priorities      Json
+  assignments     Json
+  blockers        Json
+  qaItems         Json
+  deploymentRisks Json
+  recommendations Json
+  riskLevel       String?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  @@index([organizationId])
+}
+
+model AIQAReview {
+  id                       String            @id @default(cuid())
+  organizationId           String
+  organization             Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  pullRequestId            String?
+  pullRequest              GitHubPullRequest? @relation(fields: [pullRequestId], references: [id], onDelete: SetNull)
+  deploymentId             String?
+  deployment               VercelDeployment? @relation(fields: [deploymentId], references: [id], onDelete: SetNull)
+  status                   String
+  summary                  String
+  checklist                Json
+  risks                    Json
+  missingTests             Json
+  acceptanceCriteriaStatus String?
+  recommendation           String
+  createdAt                DateTime          @default(now())
+  updatedAt                DateTime          @updatedAt
+
+  @@index([organizationId])
+}
+
+model TaskAssignment {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  issueId        String
+  issue          GitHubIssue  @relation(fields: [issueId], references: [id], onDelete: Cascade)
+  developerId    String
+  developer      Developer    @relation(fields: [developerId], references: [id], onDelete: Cascade)
+  status         TaskStatus   @default(TODO)
+  reason         String?
+  dueDate        DateTime?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@index([organizationId])
+}
+
+model ProjectMemory {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  projectId      String
+  project        Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  key            String
+  value          Json
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@unique([projectId, key])
+  @@index([organizationId])
+}
+
+model ActivityLog {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  actor          String
+  type           String
+  message        String
+  metadata       Json?
+  createdAt      DateTime     @default(now())
+
+  @@index([organizationId])
+}
+
+model IntegrationCredential {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  provider       String
+  accessToken    String?
+  refreshToken   String?
+  installationId String?
+  metadata       Json?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@unique([organizationId, provider])
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
