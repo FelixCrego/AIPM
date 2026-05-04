@@ -8,6 +8,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { getProjects, getProjectHealthScore } from "@/lib/data";
+import { AIBacklogKanban } from "@/components/projects/ai-backlog-kanban";
 import { formatRelative } from "@/lib/presentation";
 
 export const dynamic = "force-dynamic";
@@ -28,7 +29,9 @@ export default async function ProjectsPage() {
   const projects = (await getProjects()) as ProjectRow[];
 
   return (
-    <Card className="border-slate-200 bg-white/85">
+    <div className="space-y-6">
+      <AIBacklogKanban />
+      <Card className="border-slate-200 bg-white/85">
       <CardHeader>
         <CardTitle>Projects</CardTitle>
       </CardHeader>
@@ -60,6 +63,7 @@ export default async function ProjectsPage() {
           </TableBody>
         </Table>
       </CardContent>
-    </Card>
+      </Card>
+    </div>
   );
 }
