@@ -50,6 +50,35 @@ export const runStructuredOutput = async <T>({
   return schema.parse(parsed);
 };
 
+export const transcribeAudioToText = async (audio: File): Promise<string | null> => {
+  if (!openai) {
+    return null;
+  }
+
+  const transcription = await openai.audio.transcriptions.create({
+    file: audio,
+    model: process.env.OPENAI_TRANSCRIBE_MODEL ?? "gpt-4o-mini-transcribe",
+  });
+
+  const text = transcription.text?.trim();
+  return text ? text : null;
+};
+
+export const synthesizeSpeech = async (input: string): Promise<ArrayBuffer | null> => {
+  if (!openai) {
+    return null;
+  }
+
+  const speech = await openai.audio.speech.create({
+    model: process.env.OPENAI_TTS_MODEL ?? "gpt-4o-mini-tts",
+    voice: process.env.OPENAI_TTS_VOICE ?? "alloy",
+    input,
+    response_format: "mp3",
+  });
+
+  return speech.arrayBuffer();
+};
+
 export const AI_OPERATOR_STYLE = `You are DevPilot AI, acting as an experienced engineering manager, product manager, and QA lead.
 Give direct, actionable recommendations.
 Every response must include: what matters, why it matters, who should act, what happens next, and risk level.
