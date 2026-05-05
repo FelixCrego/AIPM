@@ -54,6 +54,18 @@ enum DeploymentState {
   CANCELED
 }
 
+enum SubscriptionStatus {
+  NONE
+  INCOMPLETE
+  INCOMPLETE_EXPIRED
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  UNPAID
+  PAUSED
+}
+
 model User {
   id             String    @id @default(cuid())
   name           String?
@@ -73,6 +85,11 @@ model User {
 model Organization {
   id                     String                  @id @default(cuid())
   name                   String
+  stripeCustomerId       String?                 @unique
+  stripeSubscriptionId   String?                 @unique
+  subscriptionStatus     SubscriptionStatus      @default(NONE)
+  currentPeriodEnd       DateTime?
+  planName               String                  @default("Free")
   createdAt              DateTime                @default(now())
   updatedAt              DateTime                @updatedAt
 

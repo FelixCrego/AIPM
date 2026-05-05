@@ -33,6 +33,10 @@ const DeploymentState = {
   ERROR: "ERROR",
 } as const;
 
+const SubscriptionStatus = {
+  NONE: "NONE",
+} as const;
+
 const now = new Date();
 const hoursAgo = (n: number) => new Date(now.getTime() - n * 60 * 60 * 1000);
 const daysAgo = (n: number) => new Date(now.getTime() - n * 24 * 60 * 60 * 1000);
@@ -63,6 +67,11 @@ export const demoIds = {
 export const demoOrganization = {
   id: demoIds.organization,
   name: "DevPilot Internal",
+  stripeCustomerId: null,
+  stripeSubscriptionId: null,
+  subscriptionStatus: SubscriptionStatus.NONE,
+  currentPeriodEnd: null,
+  planName: "Free",
   createdAt: daysAgo(30),
   updatedAt: hoursAgo(4),
 };

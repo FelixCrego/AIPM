@@ -20,6 +20,7 @@ The MVP ships with demo mode data so you can use the product before connecting G
 - OpenAI API
 - GitHub REST integration layer
 - Vercel REST integration layer
+- Stripe Billing subscriptions + customer portal
 - Zod + React Hook Form
 
 ## Modules in MVP
@@ -52,6 +53,10 @@ AI outputs are structured and validated with Zod.
 - `POST /api/github/prs/comment`
 - `GET /api/dashboard/summary`
 - `GET /api/developers/workload`
+- `GET /api/billing/status`
+- `POST /api/billing/checkout`
+- `POST /api/billing/portal`
+- `POST /api/stripe/webhook`
 
 ## Environment Variables
 Copy `.env.example` to `.env` and fill values:
@@ -69,6 +74,10 @@ GITHUB_APP_CLIENT_SECRET=
 GITHUB_WEBHOOK_SECRET=
 VERCEL_API_TOKEN=
 VERCEL_TEAM_ID=
+STRIPE_SECRET_KEY=
+STRIPE_PRICE_ID=
+STRIPE_WEBHOOK_SECRET=
+NEXT_PUBLIC_APP_URL=http://localhost:3000
 DEMO_MODE=true
 ```
 
@@ -157,6 +166,14 @@ Supported operations in MVP service layer:
 1. PR detail page runs `POST /api/ai/qa-review`.
 2. AI evaluates PR context and returns checklist, missing tests, risks, and recommendation.
 3. Optional button posts AI review text to GitHub via `POST /api/github/prs/comment`.
+
+## Stripe Billing
+- Settings includes an MVP billing panel with Stripe Checkout and Billing Portal actions.
+- `POST /api/billing/checkout` creates/reuses a Stripe customer for the first organization and starts a subscription Checkout session.
+- `POST /api/billing/portal` opens the Stripe Billing Portal for existing customers.
+- `POST /api/stripe/webhook` verifies Stripe signatures and syncs subscription status back to `Organization`.
+- Required production env vars: `DATABASE_URL`, `NEXT_PUBLIC_APP_URL`, `STRIPE_SECRET_KEY`, `STRIPE_PRICE_ID`, and `STRIPE_WEBHOOK_SECRET`.
+- In demo mode, billing status is visible but checkout/portal actions are disabled because there is no persisted organization/customer.
 
 ## Auth
 - Auth.js is configured with demo credentials login.
