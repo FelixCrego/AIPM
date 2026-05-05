@@ -31,6 +31,37 @@ type ConversationMessage = {
 const COLUMNS: Array<BacklogItem["column"]> = ["TODO", "IN_PROGRESS", "DONE"];
 const STORAGE_KEY = "devpilot_voice_backlog_conversation_v1";
 
+type StoredConversation = {
+  messages: ConversationMessage[];
+  lastTranscript: string | null;
+};
+
+const readStoredConversation = (): StoredConversation => {
+  if (typeof window === "undefined") {
+    return { messages: [], lastTranscript: null };
+  }
+
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEY);
+    if (!raw) {
+      return { messages: [], lastTranscript: null };
+    }
+
+    const parsed = JSON.parse(raw) as { messages?: ConversationMessage[]; lastTranscript?: string };
+    const messages = Array.isArray(parsed.messages)
+      ? parsed.messages
+          .filter((message) => (message.role === "user" || message.role === "assistant") && typeof message.content === "string")
+          .slice(-80)
+      : [];
+    const lastTranscript = typeof parsed.lastTranscript === "string" && parsed.lastTranscript.trim() ? parsed.lastTranscript.trim() : null;
+
+    return { messages, lastTranscript };
+  } catch {
+    // Ignore corrupt local cache and continue with fresh state.
+    return { messages: [], lastTranscript: null };
+  }
+};
+
 const mediaMimeType = () => {
   if (typeof MediaRecorder === "undefined") {
     return undefined;
@@ -42,14 +73,14 @@ const mediaMimeType = () => {
 
 export function AIBacklogKanban() {
   const [composer, setComposer] = useState("");
-  const [messages, setMessages] = useState<ConversationMessage[]>([]);
+  const [messages, setMessages] = useState<ConversationMessage[]>(() => readStoredConversation().messages);
   const [backlog, setBacklog] = useState<GeneratedBacklog | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pendingReply, setPendingReply] = useState(false);
   const [extractingBacklog, setExtractingBacklog] = useState(false);
   const [recording, setRecording] = useState(false);
   const [voiceStatus, setVoiceStatus] = useState<string | null>(null);
-  const [lastTranscript, setLastTranscript] = useState<string | null>(null);
+  const [lastTranscript, setLastTranscript] = useState<string | null>(() => readStoredConversation().lastTranscript);
   const [autoVoiceReply, setAutoVoiceReply] = useState(true);
 
   const recorderRef = useRef<MediaRecorder | null>(null);
@@ -75,31 +106,6 @@ export function AIBacklogKanban() {
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [messages, pendingReply]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") {
-      return;
-    }
-    try {
-      const raw = window.localStorage.getItem(STORAGE_KEY);
-      if (!raw) {
-        return;
-      }
-      const parsed = JSON.parse(raw) as { messages?: ConversationMessage[]; lastTranscript?: string };
-      if (Array.isArray(parsed.messages)) {
-        setMessages(
-          parsed.messages
-            .filter((message) => (message.role === "user" || message.role === "assistant") && typeof message.content === "string")
-            .slice(-80),
-        );
-      }
-      if (typeof parsed.lastTranscript === "string" && parsed.lastTranscript.trim()) {
-        setLastTranscript(parsed.lastTranscript.trim());
-      }
-    } catch {
-      // Ignore corrupt local cache and continue with fresh state.
-    }
-  }, []);
 
   useEffect(() => {
     persistConversation(messages, lastTranscript);
