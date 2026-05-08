@@ -7,8 +7,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { getProjects, getProjectHealthScore } from "@/lib/data";
+import { getProjects, getProjectHealthScore, getRepositories } from "@/lib/data";
 import { AIBacklogKanban } from "@/components/projects/ai-backlog-kanban";
+import { ProjectRepositoryControl } from "@/components/projects/project-repository-control";
 import { formatRelative } from "@/lib/presentation";
 
 export const dynamic = "force-dynamic";
@@ -21,16 +22,51 @@ type ProjectRow = {
   updatedAt: Date | string;
   repositoryId?: string | null;
   vercelProjectId?: string | null;
-  repository?: { fullName: string } | null;
+  repository?: {
+    id: string;
+    name: string;
+    fullName: string;
+    owner: string;
+    defaultBranch: string;
+    url: string;
+    language?: string | null;
+    isPrivate?: boolean;
+  } | null;
   vercelProject?: { name: string } | null;
 };
 
+type RepositoryRow = {
+  id: string;
+  name: string;
+  fullName: string;
+  owner: string;
+  defaultBranch: string;
+  url: string;
+  language?: string | null;
+  isPrivate?: boolean;
+};
+
 export default async function ProjectsPage() {
-  const projects = (await getProjects()) as ProjectRow[];
+  const [projects, repositories] = (await Promise.all([getProjects(), getRepositories()])) as [
+    ProjectRow[],
+    RepositoryRow[],
+  ];
 
   return (
     <div className="space-y-6">
-      <AIBacklogKanban />
+      <AIBacklogKanban
+        projects={projects.map((project) => ({
+          id: project.id,
+          name: project.name,
+          repository: project.repository
+            ? {
+                fullName: project.repository.fullName,
+                url: project.repository.url,
+                defaultBranch: project.repository.defaultBranch,
+              }
+            : null,
+        }))}
+      />
       <Card>
       <CardHeader>
         <CardTitle>Projects</CardTitle>
@@ -54,7 +90,16 @@ export default async function ProjectsPage() {
                 <TableCell className="font-medium text-white">{project.name}</TableCell>
                 <TableCell>{project.status.replaceAll("_", " ")}</TableCell>
                 <TableCell>{project.priority}</TableCell>
-                <TableCell>{project.repository?.fullName ?? project.repositoryId ?? "Unlinked"}</TableCell>
+                <TableCell>
+                  <ProjectRepositoryControl
+                    project={{
+                      id: project.id,
+                      name: project.name,
+                      repository: project.repository ?? null,
+                    }}
+                    repositories={repositories}
+                  />
+                </TableCell>
                 <TableCell>{project.vercelProject?.name ?? project.vercelProjectId ?? "Unlinked"}</TableCell>
                 <TableCell>{getProjectHealthScore(project.id)}</TableCell>
                 <TableCell>{formatRelative(project.updatedAt)}</TableCell>

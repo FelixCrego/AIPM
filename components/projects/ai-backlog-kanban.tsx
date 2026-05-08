@@ -38,6 +38,32 @@ type ConversationMessage = {
   content: string;
 };
 
+type ProjectOption = {
+  id: string;
+  name: string;
+  repository?: {
+    fullName: string;
+    url: string;
+    defaultBranch: string;
+  } | null;
+};
+
+type CardExecutionReport = {
+  status: "DONE";
+  summary: string;
+  implementationNotes: string[];
+  testsRun: string[];
+  filesChanged: string[];
+  risks: string[];
+};
+
+type CardExecutionResult = {
+  status: "DONE";
+  report: CardExecutionReport;
+  issueUrl?: string | null;
+  issueError?: string | null;
+};
+
 const COLUMNS: Array<BacklogItem["column"]> = ["TODO", "IN_PROGRESS", "DONE"];
 const STORAGE_KEY = "devpilot_voice_backlog_conversation_v1";
 
@@ -58,7 +84,9 @@ const mediaMimeType = () => {
   return candidates.find((candidate) => MediaRecorder.isTypeSupported(candidate));
 };
 
-export function AIBacklogKanban() {
+const cardExecutionKey = (item: BacklogItem) => `${item.title}\n${item.summary}`;
+
+export function AIBacklogKanban({ projects = [] }: { projects?: ProjectOption[] }) {
   const [composer, setComposer] = useState("");
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
   const [backlog, setBacklog] = useState<GeneratedBacklog | null>(null);
@@ -75,6 +103,10 @@ export function AIBacklogKanban() {
   const [aiCardPrompt, setAiCardPrompt] = useState("");
   const [cardError, setCardError] = useState<string | null>(null);
   const [generatingCard, setGeneratingCard] = useState(false);
+  const [selectedProjectId, setSelectedProjectId] = useState(projects[0]?.id ?? "");
+  const [runningCardKey, setRunningCardKey] = useState<string | null>(null);
+  const [cardExecutionResults, setCardExecutionResults] = useState<Record<string, CardExecutionResult>>({});
+  const [executionError, setExecutionError] = useState<string | null>(null);
 
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -139,6 +171,12 @@ export function AIBacklogKanban() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!selectedProjectId && projects[0]) {
+      setSelectedProjectId(projects[0].id);
+    }
+  }, [projects, selectedProjectId]);
+
   const grouped = useMemo(() => {
     const seed: Record<BacklogItem["column"], BacklogItem[]> = { TODO: [], IN_PROGRESS: [], DONE: [] };
     if (!backlog) return seed;
@@ -153,6 +191,11 @@ export function AIBacklogKanban() {
     overview: "Create TODO cards manually or extract tickets from an AI conversation.",
     items: [],
   };
+
+  const selectedProject = useMemo(
+    () => projects.find((project) => project.id === selectedProjectId) ?? projects[0] ?? null,
+    [projects, selectedProjectId],
+  );
 
   const resetCardForm = () => {
     setCreateMode("manual");
@@ -240,6 +283,67 @@ export function AIBacklogKanban() {
       setCardError(generateError instanceof Error ? generateError.message : "Unable to generate card");
     } finally {
       setGeneratingCard(false);
+    }
+  };
+
+  const completeCardWithAi = async (item: BacklogItem) => {
+    const project = selectedProject;
+    const key = cardExecutionKey(item);
+
+    if (!project) {
+      setExecutionError("Select a project before running the AI wand.");
+      return;
+    }
+
+    if (!project.repository) {
+      setExecutionError("Connect this project to a GitHub repository before running the AI wand.");
+      return;
+    }
+
+    setRunningCardKey(key);
+    setExecutionError(null);
+
+    try {
+      const response = await fetch("/api/ai/backlog/execute-card", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          projectId: project.id,
+          card: item,
+        }),
+      });
+
+      const payload = (await response.json().catch(() => null)) as
+        | { ok?: boolean; result?: CardExecutionResult; error?: string }
+        | null;
+
+      if (!response.ok || !payload?.ok || !payload.result) {
+        throw new Error(payload?.error ?? "AI card execution failed");
+      }
+
+      setCardExecutionResults((current) => ({
+        ...current,
+        [key]: payload.result!,
+      }));
+
+      setBacklog((current) => {
+        const base = current ?? displayedBacklog;
+        let moved = false;
+        return {
+          ...base,
+          items: base.items.map((existing) => {
+            if (!moved && cardExecutionKey(existing) === key) {
+              moved = true;
+              return { ...existing, column: "DONE" as const };
+            }
+            return existing;
+          }),
+        };
+      });
+    } catch (executeError) {
+      setExecutionError(executeError instanceof Error ? executeError.message : "AI card execution failed");
+    } finally {
+      setRunningCardKey(null);
     }
   };
 
@@ -452,6 +556,39 @@ export function AIBacklogKanban() {
         <CardTitle>AI Voice Conversation + Kanban Extraction</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-[1rem] border border-white/8 bg-white/[0.03] p-4">
+          <div className="space-y-1">
+            <Label htmlFor="kanban-execution-project" className="text-xs uppercase tracking-widest text-white/48">
+              Execution project
+            </Label>
+            <select
+              id="kanban-execution-project"
+              value={selectedProjectId}
+              onChange={(event) => setSelectedProjectId(event.target.value)}
+              className="h-9 min-w-64 rounded-xl border border-input bg-white/[0.04] px-3 py-2 text-sm text-white outline-none focus-visible:border-emerald-300/40 focus-visible:ring-3 focus-visible:ring-ring/40"
+            >
+              {projects.length === 0 ? <option value="">No projects</option> : null}
+              {projects.map((project) => (
+                <option key={project.id} value={project.id}>
+                  {project.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          {selectedProject?.repository ? (
+            <a
+              href={selectedProject.repository.url}
+              target="_blank"
+              rel="noreferrer"
+              className="text-sm font-medium text-emerald-200 hover:text-emerald-100"
+            >
+              {selectedProject.repository.fullName}
+            </a>
+          ) : (
+            <Badge variant="outline">Connect GitHub repo in Projects</Badge>
+          )}
+        </div>
+
         <div className="space-y-3 rounded-[1rem] border border-white/8 bg-white/[0.03] p-4">
           <div className="flex flex-wrap items-center gap-2">
             <Button
@@ -568,6 +705,7 @@ export function AIBacklogKanban() {
         </div>
 
         {error ? <p className="text-sm text-rose-300">{error}</p> : null}
+        {executionError ? <p className="text-sm text-rose-300">{executionError}</p> : null}
 
         <div className="space-y-3">
           <div>
@@ -597,26 +735,69 @@ export function AIBacklogKanban() {
                     No cards yet.
                   </p>
                 ) : null}
-                {grouped[column].map((item, itemIndex) => (
-                  <article key={`${column}-${item.title}-${itemIndex}`} className="space-y-2 rounded-[0.9rem] border border-white/8 bg-black/20 p-3">
-                    <p className="text-sm font-medium text-white">{item.title}</p>
-                    <p className="text-xs whitespace-pre-line text-white/56">{item.summary}</p>
-                    {item.commands.length ? (
-                      <div className="space-y-1 rounded-md border border-white/10 bg-black/30 p-2">
-                        <p className="text-[10px] uppercase tracking-widest text-white/45">Codex CLI Commands</p>
-                        {item.commands.map((command) => (
-                          <pre key={`${item.title}-${command}`} className="overflow-x-auto text-[11px] text-emerald-200">
-                            <code>{command}</code>
-                          </pre>
-                        ))}
+                {grouped[column].map((item, itemIndex) => {
+                  const executionKey = cardExecutionKey(item);
+                  const executionResult = cardExecutionResults[executionKey];
+                  const running = runningCardKey === executionKey;
+
+                  return (
+                    <article key={`${column}-${item.title}-${itemIndex}`} className="space-y-2 rounded-[0.9rem] border border-white/8 bg-black/20 p-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="text-sm font-medium text-white">{item.title}</p>
+                        <Button
+                          type="button"
+                          variant={executionResult ? "secondary" : "outline"}
+                          size="icon-sm"
+                          onClick={() => completeCardWithAi(item)}
+                          disabled={runningCardKey !== null || !!executionResult}
+                          title="Complete this card with AI"
+                          aria-label="Complete this card with AI"
+                        >
+                          {running ? <Loader2 className="h-4 w-4 animate-spin" /> : <WandSparkles className="h-4 w-4" />}
+                        </Button>
                       </div>
-                    ) : null}
-                    <div className="flex items-center justify-between">
-                      <Badge variant="secondary">{item.priority}</Badge>
-                      <span className="text-xs text-white/46">{item.estimate}</span>
-                    </div>
-                  </article>
-                ))}
+                      <p className="text-xs whitespace-pre-line text-white/56">{item.summary}</p>
+                      {item.commands.length ? (
+                        <div className="space-y-1 rounded-md border border-white/10 bg-black/30 p-2">
+                          <p className="text-[10px] uppercase tracking-widest text-white/45">Codex CLI Commands</p>
+                          {item.commands.map((command) => (
+                            <pre key={`${item.title}-${command}`} className="overflow-x-auto text-[11px] text-emerald-200">
+                              <code>{command}</code>
+                            </pre>
+                          ))}
+                        </div>
+                      ) : null}
+                      {executionResult ? (
+                        <div className="space-y-1 rounded-md border border-emerald-300/20 bg-emerald-500/10 p-2">
+                          <p className="text-[10px] uppercase tracking-widest text-emerald-100">AI completed and tested</p>
+                          <p className="text-xs text-emerald-50/80">{executionResult.report.summary}</p>
+                          {executionResult.report.testsRun.length ? (
+                            <p className="text-[11px] text-emerald-100/70">
+                              Tests: {executionResult.report.testsRun.slice(0, 3).join(", ")}
+                            </p>
+                          ) : null}
+                          {executionResult.issueUrl ? (
+                            <a
+                              href={executionResult.issueUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-[11px] font-medium text-emerald-100 underline underline-offset-4"
+                            >
+                              GitHub record
+                            </a>
+                          ) : null}
+                          {executionResult.issueError ? (
+                            <p className="text-[11px] text-amber-200">{executionResult.issueError}</p>
+                          ) : null}
+                        </div>
+                      ) : null}
+                      <div className="flex items-center justify-between">
+                        <Badge variant="secondary">{item.priority}</Badge>
+                        <span className="text-xs text-white/46">{item.estimate}</span>
+                      </div>
+                    </article>
+                  );
+                })}
               </div>
             ))}
           </div>
