@@ -62,6 +62,9 @@ NEXTAUTH_SECRET=
 NEXTAUTH_URL=http://localhost:3000
 OPENAI_API_KEY=
 OPENAI_MODEL=gpt-4.1-mini
+OPENAI_REALTIME_MODEL=gpt-4o-realtime-preview
+OPENAI_REALTIME_TRANSCRIBE_MODEL=gpt-4o-transcribe
+OPENAI_REALTIME_VOICE=alloy
 GITHUB_APP_ID=
 GITHUB_APP_PRIVATE_KEY=
 GITHUB_APP_CLIENT_ID=
@@ -134,6 +137,12 @@ Supported operations in MVP service layer:
 - List/sync pull requests
 - Read PR files
 - Add PR comment
+
+OAuth setup:
+- Create a GitHub OAuth app with callback URL `${NEXTAUTH_URL}/api/auth/callback/github`.
+- Set `GITHUB_APP_CLIENT_ID` and `GITHUB_APP_CLIENT_SECRET`.
+- Use Settings -> Connect GitHub to authorize repository access. The app requests `repo`, `read:org`, `read:user`, and `user:email` scopes.
+- `GITHUB_TOKEN` can still be used for server-only automation, but OAuth user tokens are preferred for real connected workspaces.
 
 ## Vercel Integration
 Service layer files:

@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 export const getProviderToken = async (provider: "github" | "vercel") => {
   const envToken =
     provider === "github"
-      ? process.env.GITHUB_APP_CLIENT_SECRET || process.env.GITHUB_TOKEN
+      ? process.env.GITHUB_TOKEN
       : process.env.VERCEL_API_TOKEN;
 
   if (envToken) {
@@ -31,5 +31,20 @@ export const getProviderToken = async (provider: "github" | "vercel") => {
     },
   });
 
-  return credential?.accessToken ?? null;
+  if (credential?.accessToken) {
+    return credential.accessToken;
+  }
+
+  if (provider === "github") {
+    const account = await prisma.account.findFirst({
+      where: {
+        provider: "github",
+        access_token: { not: null },
+      },
+    });
+
+    return account?.access_token ?? null;
+  }
+
+  return null;
 };
