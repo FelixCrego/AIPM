@@ -1,11 +1,21 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Mic, MicOff, Send, Sparkles, Volume2 } from "lucide-react";
+import { Loader2, Mic, MicOff, Plus, Send, Sparkles, Volume2, WandSparkles } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 
 type BacklogItem = {
@@ -31,6 +41,14 @@ type ConversationMessage = {
 const COLUMNS: Array<BacklogItem["column"]> = ["TODO", "IN_PROGRESS", "DONE"];
 const STORAGE_KEY = "devpilot_voice_backlog_conversation_v1";
 
+const emptyCardForm = {
+  title: "",
+  summary: "",
+  estimate: "3 pts",
+  priority: "MEDIUM" as BacklogItem["priority"],
+  commands: [] as string[],
+};
+
 const mediaMimeType = () => {
   if (typeof MediaRecorder === "undefined") {
     return undefined;
@@ -51,6 +69,12 @@ export function AIBacklogKanban() {
   const [voiceStatus, setVoiceStatus] = useState<string | null>(null);
   const [lastTranscript, setLastTranscript] = useState<string | null>(null);
   const [autoVoiceReply, setAutoVoiceReply] = useState(true);
+  const [createCardOpen, setCreateCardOpen] = useState(false);
+  const [createMode, setCreateMode] = useState<"manual" | "ai">("manual");
+  const [cardForm, setCardForm] = useState(emptyCardForm);
+  const [aiCardPrompt, setAiCardPrompt] = useState("");
+  const [cardError, setCardError] = useState<string | null>(null);
+  const [generatingCard, setGeneratingCard] = useState(false);
 
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -123,6 +147,101 @@ export function AIBacklogKanban() {
     }
     return seed;
   }, [backlog]);
+
+  const displayedBacklog: GeneratedBacklog = backlog ?? {
+    projectName: "Project Kanban",
+    overview: "Create TODO cards manually or extract tickets from an AI conversation.",
+    items: [],
+  };
+
+  const resetCardForm = () => {
+    setCreateMode("manual");
+    setCardForm(emptyCardForm);
+    setAiCardPrompt("");
+    setCardError(null);
+    setGeneratingCard(false);
+  };
+
+  const openNewTodoCard = () => {
+    resetCardForm();
+    setCreateCardOpen(true);
+  };
+
+  const addTodoCard = () => {
+    const title = cardForm.title.trim();
+    const summary = cardForm.summary.trim();
+
+    if (!title || !summary) {
+      setCardError("Add a title and summary before creating the card.");
+      return;
+    }
+
+    const newItem: BacklogItem = {
+      title,
+      summary,
+      estimate: cardForm.estimate.trim() || "3 pts",
+      priority: cardForm.priority,
+      column: "TODO",
+      commands: cardForm.commands,
+    };
+
+    setBacklog((current) => {
+      const base = current ?? {
+        projectName: "Manual Kanban",
+        overview: "Cards created directly from the TODO column.",
+        items: [],
+      };
+
+      return {
+        ...base,
+        items: [newItem, ...base.items],
+      };
+    });
+    setCreateCardOpen(false);
+    resetCardForm();
+  };
+
+  const generateCardWithAi = async () => {
+    const prompt = aiCardPrompt.trim();
+    if (prompt.length < 8) {
+      setCardError("Describe the card you want AI to generate.");
+      return;
+    }
+
+    setGeneratingCard(true);
+    setCardError(null);
+
+    try {
+      const response = await fetch("/api/ai/backlog/card", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          prompt,
+          projectName: backlog?.projectName,
+          overview: backlog?.overview,
+          existingTitles: backlog?.items.map((item) => item.title) ?? [],
+        }),
+      });
+
+      const payload = await response.json();
+      if (!response.ok || !payload.ok) {
+        throw new Error(payload.error ?? "Unable to generate card");
+      }
+
+      const item = payload.item as BacklogItem;
+      setCardForm({
+        title: item.title,
+        summary: item.summary,
+        estimate: item.estimate,
+        priority: item.priority,
+        commands: item.commands ?? [],
+      });
+    } catch (generateError) {
+      setCardError(generateError instanceof Error ? generateError.message : "Unable to generate card");
+    } finally {
+      setGeneratingCard(false);
+    }
+  };
 
   const speakText = async (text: string) => {
     const response = await fetch("/api/ai/voice/speak", {
@@ -450,41 +569,186 @@ export function AIBacklogKanban() {
 
         {error ? <p className="text-sm text-rose-300">{error}</p> : null}
 
-        {backlog ? (
-          <div className="space-y-3">
-            <div>
-              <h3 className="font-semibold text-white">{backlog.projectName}</h3>
-              <p className="text-sm text-white/62">{backlog.overview}</p>
-            </div>
-            <div className="grid gap-4 md:grid-cols-3">
-              {COLUMNS.map((column) => (
-                <div key={column} className="space-y-3 rounded-[1.1rem] border border-white/8 bg-white/[0.03] p-3">
+        <div className="space-y-3">
+          <div>
+            <h3 className="font-semibold text-white">{displayedBacklog.projectName}</h3>
+            <p className="text-sm text-white/62">{displayedBacklog.overview}</p>
+          </div>
+          <div className="grid gap-4 md:grid-cols-3">
+            {COLUMNS.map((column) => (
+              <div key={column} className="space-y-3 rounded-[1.1rem] border border-white/8 bg-white/[0.03] p-3">
+                <div className="flex items-center justify-between gap-2">
                   <h4 className="text-sm font-semibold text-white/76">{column.replaceAll("_", " ")}</h4>
-                  {grouped[column].map((item) => (
-                    <article key={`${column}-${item.title}`} className="space-y-2 rounded-[0.9rem] border border-white/8 bg-black/20 p-3">
-                      <p className="text-sm font-medium text-white">{item.title}</p>
-                      <p className="text-xs whitespace-pre-line text-white/56">{item.summary}</p>
-                      {item.commands.length ? (
-                        <div className="space-y-1 rounded-md border border-white/10 bg-black/30 p-2">
-                          <p className="text-[10px] uppercase tracking-widest text-white/45">Codex CLI Commands</p>
-                          {item.commands.map((command) => (
-                            <pre key={`${item.title}-${command}`} className="overflow-x-auto text-[11px] text-emerald-200">
-                              <code>{command}</code>
-                            </pre>
-                          ))}
-                        </div>
-                      ) : null}
-                      <div className="flex items-center justify-between">
-                        <Badge variant="secondary">{item.priority}</Badge>
-                        <span className="text-xs text-white/46">{item.estimate}</span>
+                  {column === "TODO" ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon-sm"
+                      onClick={openNewTodoCard}
+                      title="Add TODO card"
+                      aria-label="Add TODO card"
+                    >
+                      <Plus className="h-4 w-4" />
+                    </Button>
+                  ) : null}
+                </div>
+                {grouped[column].length === 0 ? (
+                  <p className="rounded-[0.9rem] border border-dashed border-white/10 p-3 text-xs text-white/42">
+                    No cards yet.
+                  </p>
+                ) : null}
+                {grouped[column].map((item, itemIndex) => (
+                  <article key={`${column}-${item.title}-${itemIndex}`} className="space-y-2 rounded-[0.9rem] border border-white/8 bg-black/20 p-3">
+                    <p className="text-sm font-medium text-white">{item.title}</p>
+                    <p className="text-xs whitespace-pre-line text-white/56">{item.summary}</p>
+                    {item.commands.length ? (
+                      <div className="space-y-1 rounded-md border border-white/10 bg-black/30 p-2">
+                        <p className="text-[10px] uppercase tracking-widest text-white/45">Codex CLI Commands</p>
+                        {item.commands.map((command) => (
+                          <pre key={`${item.title}-${command}`} className="overflow-x-auto text-[11px] text-emerald-200">
+                            <code>{command}</code>
+                          </pre>
+                        ))}
                       </div>
-                    </article>
+                    ) : null}
+                    <div className="flex items-center justify-between">
+                      <Badge variant="secondary">{item.priority}</Badge>
+                      <span className="text-xs text-white/46">{item.estimate}</span>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <Dialog open={createCardOpen} onOpenChange={setCreateCardOpen}>
+          <DialogContent className="sm:max-w-xl">
+            <DialogHeader>
+              <DialogTitle>Create TODO card</DialogTitle>
+              <DialogDescription>
+                Add a card manually or use AI to draft the title, summary, estimate, priority, and commands.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-2 rounded-xl border border-white/8 bg-white/[0.03] p-1">
+                <Button
+                  type="button"
+                  variant={createMode === "manual" ? "secondary" : "ghost"}
+                  onClick={() => setCreateMode("manual")}
+                >
+                  Manual
+                </Button>
+                <Button
+                  type="button"
+                  variant={createMode === "ai" ? "secondary" : "ghost"}
+                  onClick={() => setCreateMode("ai")}
+                >
+                  <WandSparkles className="h-4 w-4" />
+                  AI generated
+                </Button>
+              </div>
+
+              {createMode === "ai" ? (
+                <div className="space-y-2 rounded-xl border border-violet-400/18 bg-violet-500/8 p-3">
+                  <Label htmlFor="ai-card-prompt">AI card prompt</Label>
+                  <Textarea
+                    id="ai-card-prompt"
+                    rows={3}
+                    placeholder="Describe the feature, bug, or task this TODO card should cover..."
+                    value={aiCardPrompt}
+                    onChange={(event) => setAiCardPrompt(event.target.value)}
+                  />
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={generateCardWithAi}
+                    disabled={generatingCard || aiCardPrompt.trim().length < 8}
+                  >
+                    {generatingCard ? <Loader2 className="h-4 w-4 animate-spin" /> : <WandSparkles className="h-4 w-4" />}
+                    {generatingCard ? "Generating..." : "Generate card"}
+                  </Button>
+                </div>
+              ) : null}
+
+              <div className="space-y-2">
+                <Label htmlFor="todo-card-title">Title</Label>
+                <Input
+                  id="todo-card-title"
+                  value={cardForm.title}
+                  onChange={(event) => setCardForm((current) => ({ ...current, title: event.target.value }))}
+                  placeholder="Short implementation task"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="todo-card-summary">Summary</Label>
+                <Textarea
+                  id="todo-card-summary"
+                  rows={5}
+                  value={cardForm.summary}
+                  onChange={(event) => setCardForm((current) => ({ ...current, summary: event.target.value }))}
+                  placeholder="Goal, implementation notes, acceptance criteria, and verification..."
+                />
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="todo-card-estimate">Estimate</Label>
+                  <Input
+                    id="todo-card-estimate"
+                    value={cardForm.estimate}
+                    onChange={(event) => setCardForm((current) => ({ ...current, estimate: event.target.value }))}
+                    placeholder="3 pts"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="todo-card-priority">Priority</Label>
+                  <select
+                    id="todo-card-priority"
+                    value={cardForm.priority}
+                    onChange={(event) =>
+                      setCardForm((current) => ({
+                        ...current,
+                        priority: event.target.value as BacklogItem["priority"],
+                      }))
+                    }
+                    className="h-10 w-full rounded-xl border border-input bg-white/[0.04] px-3 py-2 text-sm text-white outline-none focus-visible:border-emerald-300/40 focus-visible:ring-3 focus-visible:ring-ring/40"
+                  >
+                    <option value="LOW">LOW</option>
+                    <option value="MEDIUM">MEDIUM</option>
+                    <option value="HIGH">HIGH</option>
+                    <option value="CRITICAL">CRITICAL</option>
+                  </select>
+                </div>
+              </div>
+
+              {cardForm.commands.length ? (
+                <div className="space-y-1 rounded-md border border-white/10 bg-black/30 p-2">
+                  <p className="text-[10px] uppercase tracking-widest text-white/45">AI Commands</p>
+                  {cardForm.commands.map((command) => (
+                    <pre key={command} className="overflow-x-auto text-[11px] text-emerald-200">
+                      <code>{command}</code>
+                    </pre>
                   ))}
                 </div>
-              ))}
+              ) : null}
+
+              {cardError ? <p className="text-sm text-rose-300">{cardError}</p> : null}
             </div>
-          </div>
-        ) : null}
+
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setCreateCardOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="button" onClick={addTodoCard} disabled={generatingCard}>
+                <Plus className="h-4 w-4" />
+                Add card
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </CardContent>
     </Card>
   );
