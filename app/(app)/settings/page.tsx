@@ -4,6 +4,7 @@ import { useForm } from "react-hook-form";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { GitHubOAuthControl } from "@/components/settings/github-oauth-control";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -42,6 +43,10 @@ export default function SettingsPage() {
         <CardTitle>Settings</CardTitle>
       </CardHeader>
       <CardContent>
+        <div className="mb-4">
+          <GitHubOAuthControl />
+        </div>
+
         <form onSubmit={onSubmit} className="grid gap-4 md:grid-cols-2">
           <div className="space-y-2">
             <Label htmlFor="organizationName">Organization Name</Label>

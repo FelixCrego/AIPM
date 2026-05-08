@@ -75,15 +75,6 @@ const emptyCardForm = {
   commands: [] as string[],
 };
 
-const mediaMimeType = () => {
-  if (typeof MediaRecorder === "undefined") {
-    return undefined;
-  }
-
-  const candidates = ["audio/webm;codecs=opus", "audio/mp4", "audio/webm"];
-  return candidates.find((candidate) => MediaRecorder.isTypeSupported(candidate));
-};
-
 const cardExecutionKey = (item: BacklogItem) => `${item.title}\n${item.summary}`;
 
 export function AIBacklogKanban({ projects = [] }: { projects?: ProjectOption[] }) {
@@ -108,11 +99,12 @@ export function AIBacklogKanban({ projects = [] }: { projects?: ProjectOption[] 
   const [cardExecutionResults, setCardExecutionResults] = useState<Record<string, CardExecutionResult>>({});
   const [executionError, setExecutionError] = useState<string | null>(null);
 
-  const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const chunksRef = useRef<Blob[]>([]);
   const currentAudioUrlRef = useRef<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const realtimePeerRef = useRef<RTCPeerConnection | null>(null);
+  const realtimeChannelRef = useRef<RTCDataChannel | null>(null);
+  const assistantTranscriptRef = useRef("");
   const chatEndRef = useRef<HTMLDivElement | null>(null);
 
   const persistConversation = (nextMessages: ConversationMessage[], transcript: string | null) => {
@@ -163,6 +155,8 @@ export function AIBacklogKanban({ projects = [] }: { projects?: ProjectOption[] 
 
   useEffect(() => {
     return () => {
+      realtimeChannelRef.current?.close();
+      realtimePeerRef.current?.close();
       streamRef.current?.getTracks().forEach((track) => track.stop());
       audioRef.current?.pause();
       if (currentAudioUrlRef.current) {
@@ -371,24 +365,6 @@ export function AIBacklogKanban({ projects = [] }: { projects?: ProjectOption[] 
     await audio.play();
   };
 
-  const transcribeRecording = async (blob: Blob) => {
-    const form = new FormData();
-    const fileType = blob.type || "audio/webm";
-    form.append("audio", new File([blob], "voice-backlog-input.webm", { type: fileType }));
-
-    const response = await fetch("/api/ai/voice/transcribe", {
-      method: "POST",
-      body: form,
-    });
-
-    const payload = await response.json();
-    if (!response.ok || !payload.ok) {
-      throw new Error(payload.error ?? "Transcription failed");
-    }
-
-    return payload.transcript as string;
-  };
-
   const sendTurn = async (input: string, options?: { fromVoice?: boolean }) => {
     const clean = input.trim();
     if (clean.length < 2) {
@@ -490,63 +466,158 @@ export function AIBacklogKanban({ projects = [] }: { projects?: ProjectOption[] 
     }
   };
 
-  const stopRecording = () => {
-    const recorder = recorderRef.current;
-    if (!recorder || recorder.state !== "recording") {
+  const appendRealtimeAssistantReply = () => {
+    const content = assistantTranscriptRef.current.trim();
+    if (!content) {
       return;
     }
-    recorder.stop();
+
+    assistantTranscriptRef.current = "";
+    setMessages((current) => [...current, { role: "assistant", content }]);
+    setVoiceStatus("Live response ready.");
+  };
+
+  const handleRealtimeEvent = (event: MessageEvent) => {
+    try {
+      const payload = JSON.parse(event.data) as {
+        type?: string;
+        transcript?: string;
+        delta?: string;
+        error?: { message?: string };
+      };
+
+      if (payload.type === "input_audio_buffer.speech_started") {
+        setVoiceStatus("Listening...");
+        return;
+      }
+
+      if (payload.type === "input_audio_buffer.speech_stopped") {
+        setVoiceStatus("Processing...");
+        return;
+      }
+
+      if (payload.type === "conversation.item.input_audio_transcription.completed" && payload.transcript) {
+        const transcript = payload.transcript.trim();
+        setLastTranscript(transcript);
+        setMessages((current) => [...current, { role: "user", content: transcript }]);
+        return;
+      }
+
+      if (
+        (payload.type === "response.audio_transcript.delta" || payload.type === "response.output_text.delta") &&
+        payload.delta
+      ) {
+        assistantTranscriptRef.current += payload.delta;
+        return;
+      }
+
+      if (payload.type === "response.audio_transcript.done" || payload.type === "response.done") {
+        appendRealtimeAssistantReply();
+        return;
+      }
+
+      if (payload.type === "error") {
+        setError(payload.error?.message ?? "Realtime voice session failed");
+        setVoiceStatus("Live voice failed.");
+      }
+    } catch {
+      // Ignore non-JSON control messages from the realtime transport.
+    }
+  };
+
+  const stopRecording = () => {
+    realtimeChannelRef.current?.close();
+    realtimeChannelRef.current = null;
+    realtimePeerRef.current?.close();
+    realtimePeerRef.current = null;
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    streamRef.current = null;
+    audioRef.current?.pause();
+    assistantTranscriptRef.current = "";
+    setRecording(false);
+    setVoiceStatus("Live voice stopped.");
   };
 
   const startRecording = async () => {
-    if (typeof window === "undefined" || !navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
-      setError("Voice capture is not supported in this browser.");
+    if (typeof window === "undefined" || !navigator.mediaDevices?.getUserMedia || typeof RTCPeerConnection === "undefined") {
+      setError("Live voice is not supported in this browser.");
       return;
     }
 
     setError(null);
-    setVoiceStatus("Listening...");
-    chunksRef.current = [];
+    setVoiceStatus("Starting live voice...");
 
     try {
+      const sessionResponse = await fetch("/api/ai/voice/realtime-session", { method: "POST" });
+      const sessionPayload = (await sessionResponse.json().catch(() => null)) as
+        | { ok?: boolean; clientSecret?: string; model?: string; error?: string }
+        | null;
+
+      if (!sessionResponse.ok || !sessionPayload?.ok || !sessionPayload.clientSecret) {
+        throw new Error(sessionPayload?.error ?? "Unable to start realtime voice session");
+      }
+
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
 
-      const recorder = new MediaRecorder(stream, mediaMimeType() ? { mimeType: mediaMimeType() } : undefined);
-      recorderRef.current = recorder;
+      const peer = new RTCPeerConnection();
+      realtimePeerRef.current = peer;
 
-      recorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          chunksRef.current.push(event.data);
-        }
+      const remoteAudio = new Audio();
+      remoteAudio.autoplay = true;
+      audioRef.current = remoteAudio;
+      peer.ontrack = (event) => {
+        remoteAudio.srcObject = event.streams[0];
       };
 
-      recorder.onstop = async () => {
-        setRecording(false);
-        stream.getTracks().forEach((track) => track.stop());
-        streamRef.current = null;
+      for (const track of stream.getTracks()) {
+        peer.addTrack(track, stream);
+      }
 
-        const recordingBlob = new Blob(chunksRef.current, { type: recorder.mimeType || "audio/webm" });
-        chunksRef.current = [];
+      const dataChannel = peer.createDataChannel("oai-events");
+      realtimeChannelRef.current = dataChannel;
+      dataChannel.onopen = () => setVoiceStatus("Live voice connected.");
+      dataChannel.onmessage = handleRealtimeEvent;
+      dataChannel.onerror = () => setVoiceStatus("Live voice data channel failed.");
 
-        try {
-          setVoiceStatus("Transcribing...");
-          const transcript = await transcribeRecording(recordingBlob);
-          setLastTranscript(transcript);
+      const offer = await peer.createOffer();
+      await peer.setLocalDescription(offer);
 
-          setVoiceStatus("Sending to conversation...");
-          await sendTurn(transcript, { fromVoice: true });
-        } catch (transcribeError) {
-          setVoiceStatus("Voice flow failed.");
-          setError(transcribeError instanceof Error ? transcribeError.message : "Voice processing failed");
-        }
-      };
+      let sdpResponse = await fetch("https://api.openai.com/v1/realtime/calls", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${sessionPayload.clientSecret}`,
+          "Content-Type": "application/sdp",
+          "OpenAI-Beta": "realtime=v1",
+        },
+        body: offer.sdp,
+      });
 
-      recorder.start();
+      if (!sdpResponse.ok && (sdpResponse.status === 400 || sdpResponse.status === 404)) {
+        sdpResponse = await fetch(`https://api.openai.com/v1/realtime?model=${encodeURIComponent(sessionPayload.model ?? "gpt-4o-realtime-preview")}`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${sessionPayload.clientSecret}`,
+            "Content-Type": "application/sdp",
+            "OpenAI-Beta": "realtime=v1",
+          },
+          body: offer.sdp,
+        });
+      }
+
+      if (!sdpResponse.ok) {
+        const body = await sdpResponse.text();
+        throw new Error(body || `Realtime call failed: ${sdpResponse.status}`);
+      }
+
+      const answer = await sdpResponse.text();
+      await peer.setRemoteDescription({ type: "answer", sdp: answer });
       setRecording(true);
+      setVoiceStatus("Live voice connected.");
     } catch (recordError) {
-      setVoiceStatus("Microphone unavailable.");
-      setError(recordError instanceof Error ? recordError.message : "Unable to start recording");
+      stopRecording();
+      setVoiceStatus("Live voice failed.");
+      setError(recordError instanceof Error ? recordError.message : "Unable to start live voice");
     }
   };
 
@@ -600,12 +671,12 @@ export function AIBacklogKanban({ projects = [] }: { projects?: ProjectOption[] 
               {recording ? (
                 <>
                   <MicOff className="h-4 w-4" />
-                  Stop Voice Capture
+                  Stop Live Voice
                 </>
               ) : (
                 <>
                   <Mic className="h-4 w-4" />
-                  Talk to AI
+                  Start Live Voice
                 </>
               )}
             </Button>
