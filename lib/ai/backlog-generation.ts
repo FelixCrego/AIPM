@@ -3,7 +3,7 @@ import { z } from "zod";
 import { AI_OPERATOR_STYLE, runStructuredOutput } from "@/lib/ai/client";
 import { getProjects } from "@/lib/data";
 
-const backlogItemSchema = z.object({
+export const backlogItemSchema = z.object({
   title: z.string().min(4),
   summary: z.string().min(20),
   estimate: z.string().min(2),
@@ -19,6 +19,17 @@ export const generatedBacklogSchema = z.object({
 });
 
 export type GeneratedBacklog = z.infer<typeof generatedBacklogSchema>;
+export type GeneratedBacklogItem = z.infer<typeof backlogItemSchema>;
+
+const generatedBacklogCardSchema = z.object({
+  item: backlogItemSchema,
+});
+
+type BacklogCardContext = {
+  projectName?: string;
+  overview?: string;
+  existingTitles?: string[];
+};
 
 const buildPrompt = (projectPrompt: string, projectContext: unknown) => `Create an AI-generated, Codex-ready Kanban backlog from this planning conversation.
 
@@ -65,6 +76,44 @@ Rules for commands:
 - Do not include markdown fences.
 - Keep commands concise and specific to each ticket.`;
 
+const buildCardPrompt = (
+  cardPrompt: string,
+  cardContext: BacklogCardContext,
+  projectContext: unknown,
+) => `Create one AI-generated, Codex-ready Kanban card for the TODO column.
+
+You must return JSON only.
+No placeholders. No generic sample tickets.
+The card must be actionable by Codex CLI agents and directly based on the user request.
+
+User request:
+${cardPrompt}
+
+Current Kanban context:
+${JSON.stringify(cardContext)}
+
+Known project context:
+${JSON.stringify(projectContext)}
+
+Output schema:
+{
+  "item": {
+    "title": "string",
+    "summary": "string with Goal, Implementation, Acceptance Criteria, Verification",
+    "estimate": "string (e.g. 2 pts, 3 pts, 5 pts)",
+    "priority": "LOW|MEDIUM|HIGH|CRITICAL",
+    "column": "TODO",
+    "commands": ["Codex CLI-ready command(s) relevant to this ticket"]
+  }
+}
+
+Rules:
+- Set column to TODO.
+- Avoid duplicating existing card titles.
+- Keep the title under 90 characters.
+- Include concrete acceptance criteria in the summary.
+- Do not include markdown fences.`;
+
 export const generateBacklogFromProjectPrompt = async (projectPrompt: string): Promise<GeneratedBacklog> => {
   const projects = await getProjects();
   const projectContext = (projects as Array<{ name?: string; repository?: { fullName?: string } | null; vercelProject?: { name?: string } | null }>)
@@ -96,4 +145,50 @@ export const generateBacklogFromProjectPrompt = async (projectPrompt: string): P
   throw new Error(
     `AI Kanban generation failed. ${lastError?.message ?? "OpenAI did not return a valid Codex-ready backlog."}`,
   );
+};
+
+export const generateBacklogCardFromPrompt = async (
+  cardPrompt: string,
+  cardContext: BacklogCardContext = {},
+): Promise<GeneratedBacklogItem> => {
+  const projects = await getProjects();
+  const projectContext = (projects as Array<{ name?: string; repository?: { fullName?: string } | null; vercelProject?: { name?: string } | null }>)
+    .slice(0, 8)
+    .map((project) => ({
+      name: project.name ?? "Unknown",
+      repository: project.repository?.fullName ?? "Unlinked",
+      vercelProject: project.vercelProject?.name ?? "Unlinked",
+    }));
+
+  let lastError: Error | null = null;
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const result = await runStructuredOutput({
+        system: `${AI_OPERATOR_STYLE}\nReturn strict JSON output for the requested schema.`,
+        user: buildCardPrompt(cardPrompt, cardContext, projectContext),
+        schema: generatedBacklogCardSchema,
+      });
+
+      if (result) {
+        return { ...result.item, column: "TODO" };
+      }
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error("Unknown AI card generation error");
+    }
+  }
+
+  if (lastError) {
+    throw new Error(`AI card generation failed. ${lastError.message}`);
+  }
+
+  const cleanedPrompt = cardPrompt.trim();
+  return {
+    title: `Implement ${cleanedPrompt.slice(0, 70)}`,
+    summary: `Goal: ${cleanedPrompt}\nImplementation: Define the smallest shippable change and wire it through the relevant UI, API, or data layer.\nAcceptance Criteria: The requested behavior works from the project Kanban board.\nVerification: Run the relevant lint, typecheck, or build command before release.`,
+    estimate: "3 pts",
+    priority: "MEDIUM",
+    column: "TODO",
+    commands: ["npm run typecheck", "npm run lint"],
+  };
 };
