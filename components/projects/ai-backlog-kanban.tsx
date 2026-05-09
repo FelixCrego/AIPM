@@ -733,27 +733,14 @@ export function AIBacklogKanban({ projects = [] }: { projects?: ProjectOption[] 
       const offer = await peer.createOffer();
       await peer.setLocalDescription(offer);
 
-      let sdpResponse = await fetch("https://api.openai.com/v1/realtime/calls", {
+      const sdpResponse = await fetch("https://api.openai.com/v1/realtime/calls", {
         method: "POST",
         headers: {
           Authorization: `Bearer ${sessionPayload.clientSecret}`,
           "Content-Type": "application/sdp",
-          "OpenAI-Beta": "realtime=v1",
         },
         body: offer.sdp,
       });
-
-      if (!sdpResponse.ok && (sdpResponse.status === 400 || sdpResponse.status === 404)) {
-        sdpResponse = await fetch(`https://api.openai.com/v1/realtime?model=${encodeURIComponent(sessionPayload.model ?? "gpt-4o-realtime-preview")}`, {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${sessionPayload.clientSecret}`,
-            "Content-Type": "application/sdp",
-            "OpenAI-Beta": "realtime=v1",
-          },
-          body: offer.sdp,
-        });
-      }
 
       if (!sdpResponse.ok) {
         const body = await sdpResponse.text();

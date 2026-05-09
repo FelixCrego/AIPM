@@ -14,6 +14,7 @@ type RealtimeClientSecretResponse = {
 export async function POST() {
   try {
     const apiKey = process.env.OPENAI_API_KEY;
+    const realtimeModel = process.env.OPENAI_REALTIME_MODEL ?? "gpt-realtime";
     if (!apiKey) {
       throw new Error("OPENAI_API_KEY is not configured");
     }
@@ -23,12 +24,11 @@ export async function POST() {
       headers: {
         Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
-        "OpenAI-Beta": "realtime=v1",
       },
       body: JSON.stringify({
         session: {
           type: "realtime",
-          model: process.env.OPENAI_REALTIME_MODEL ?? "gpt-4o-realtime-preview",
+          model: realtimeModel,
           instructions:
             "You are DevPilot AI in live voice mode. Keep replies concise, ask one focused question when needed, and retain details for Kanban ticket extraction.",
           audio: {
@@ -70,7 +70,7 @@ export async function POST() {
       ok: true,
       clientSecret,
       expiresAt,
-      model: process.env.OPENAI_REALTIME_MODEL ?? "gpt-4o-realtime-preview",
+      model: realtimeModel,
       transcriptionModel: process.env.OPENAI_REALTIME_TRANSCRIBE_MODEL ?? "gpt-4o-transcribe",
     });
   } catch (error) {
