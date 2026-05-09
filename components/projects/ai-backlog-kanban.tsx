@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import {
+  Check,
+  Copy,
   ArrowLeft,
   ArrowRight,
   ListFilter,
@@ -29,6 +31,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 
 type BacklogItem = {
@@ -155,6 +158,8 @@ export function AIBacklogKanban({ projects = [] }: { projects?: ProjectOption[] 
   const [backlogSearch, setBacklogSearch] = useState("");
   const [priorityFilter, setPriorityFilter] = useState<BacklogItem["priority"] | "ALL">("ALL");
   const [actionableOnly, setActionableOnly] = useState(false);
+  const [activeMobileColumn, setActiveMobileColumn] = useState<BacklogItem["column"]>("TODO");
+  const [copiedCommandsKey, setCopiedCommandsKey] = useState<string | null>(null);
 
   const streamRef = useRef<MediaStream | null>(null);
   const currentAudioUrlRef = useRef<string | null>(null);
@@ -163,6 +168,7 @@ export function AIBacklogKanban({ projects = [] }: { projects?: ProjectOption[] 
   const realtimeChannelRef = useRef<RTCDataChannel | null>(null);
   const assistantTranscriptRef = useRef("");
   const chatEndRef = useRef<HTMLDivElement | null>(null);
+  const copiedCommandsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const persistConversation = (nextMessages: ConversationMessage[], transcript: string | null) => {
     if (typeof window === "undefined") {
@@ -195,6 +201,9 @@ export function AIBacklogKanban({ projects = [] }: { projects?: ProjectOption[] 
       audioRef.current?.pause();
       if (currentAudioUrlRef.current) {
         URL.revokeObjectURL(currentAudioUrlRef.current);
+      }
+      if (copiedCommandsTimeoutRef.current) {
+        clearTimeout(copiedCommandsTimeoutRef.current);
       }
     };
   }, []);
@@ -438,6 +447,39 @@ export function AIBacklogKanban({ projects = [] }: { projects?: ProjectOption[] 
     setBacklogSearch("");
     setPriorityFilter("ALL");
     setActionableOnly(false);
+  };
+
+  const getAdjacentColumn = (column: BacklogItem["column"], direction: -1 | 1): BacklogItem["column"] | null => {
+    const columnIndex = COLUMNS.indexOf(column);
+    if (columnIndex < 0) {
+      return null;
+    }
+    return COLUMNS[columnIndex + direction] ?? null;
+  };
+
+  const copyCardCommands = async (item: BacklogItem) => {
+    if (!item.commands.length) {
+      return;
+    }
+
+    const key = cardExecutionKey(item);
+    try {
+      if (typeof navigator === "undefined" || !navigator.clipboard?.writeText) {
+        throw new Error("Clipboard unavailable");
+      }
+
+      await navigator.clipboard.writeText(item.commands.join("\n"));
+      setCopiedCommandsKey(key);
+
+      if (copiedCommandsTimeoutRef.current) {
+        clearTimeout(copiedCommandsTimeoutRef.current);
+      }
+      copiedCommandsTimeoutRef.current = setTimeout(() => {
+        setCopiedCommandsKey((current) => (current === key ? null : current));
+      }, 1800);
+    } catch {
+      setExecutionError("Unable to copy commands in this browser.");
+    }
   };
 
   const speakText = async (text: string) => {
@@ -729,6 +771,138 @@ export function AIBacklogKanban({ projects = [] }: { projects?: ProjectOption[] 
     }
   };
 
+  const renderColumn = (column: BacklogItem["column"]) => (
+    <div key={column} className="space-y-3 rounded-[1.1rem] border border-white/8 bg-white/[0.03] p-3">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <h4 className="text-sm font-semibold text-white/76">{COLUMN_LABELS[column]}</h4>
+          <Badge variant="outline" className="h-5 px-2 text-[0.62rem]">
+            {filteredGrouped[column].length}
+          </Badge>
+        </div>
+        {column === "TODO" ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="icon-sm"
+            onClick={openNewTodoCard}
+            title="Add TODO card"
+            aria-label="Add TODO card"
+          >
+            <Plus className="h-4 w-4" />
+          </Button>
+        ) : null}
+      </div>
+      {filteredGrouped[column].length === 0 ? (
+        <p className="rounded-[0.9rem] border border-dashed border-white/10 p-3 text-xs text-white/42">
+          {hasActiveFilters ? "No cards match these filters." : "No cards yet."}
+        </p>
+      ) : null}
+      {filteredGrouped[column].map((item, itemIndex) => {
+        const executionKey = cardExecutionKey(item);
+        const executionResult = cardExecutionResults[executionKey];
+        const running = runningCardKey === executionKey;
+        const leftColumn = getAdjacentColumn(column, -1);
+        const rightColumn = getAdjacentColumn(column, 1);
+
+        return (
+          <article
+            key={`${column}-${item.title}-${itemIndex}`}
+            className="space-y-2 rounded-[0.9rem] border border-white/8 bg-black/20 p-3"
+          >
+            <div className="flex items-start justify-between gap-2">
+              <p className="text-sm font-medium text-white">{item.title}</p>
+              <div className="flex items-center gap-1">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-xs"
+                  onClick={() => leftColumn && moveCardToColumn(item, leftColumn)}
+                  disabled={!leftColumn || runningCardKey !== null}
+                  title="Move left"
+                  aria-label="Move left"
+                >
+                  <ArrowLeft className="h-3.5 w-3.5" />
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-xs"
+                  onClick={() => rightColumn && moveCardToColumn(item, rightColumn)}
+                  disabled={!rightColumn || runningCardKey !== null}
+                  title="Move right"
+                  aria-label="Move right"
+                >
+                  <ArrowRight className="h-3.5 w-3.5" />
+                </Button>
+                <Button
+                  type="button"
+                  variant={executionResult ? "secondary" : "outline"}
+                  size="icon-sm"
+                  onClick={() => completeCardWithAi(item)}
+                  disabled={runningCardKey !== null || !!executionResult}
+                  title="Complete this card with AI"
+                  aria-label="Complete this card with AI"
+                >
+                  {running ? <Loader2 className="h-4 w-4 animate-spin" /> : <WandSparkles className="h-4 w-4" />}
+                </Button>
+              </div>
+            </div>
+            <p className="text-xs whitespace-pre-line text-white/56">{item.summary}</p>
+            {item.commands.length ? (
+              <div className="space-y-1 rounded-md border border-white/10 bg-black/30 p-2">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-[10px] uppercase tracking-widest text-white/45">Codex CLI Commands</p>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-xs"
+                    onClick={() => void copyCardCommands(item)}
+                    title="Copy commands"
+                    aria-label="Copy commands"
+                  >
+                    {copiedCommandsKey === executionKey ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+                  </Button>
+                </div>
+                {item.commands.map((command) => (
+                  <pre key={`${item.title}-${command}`} className="overflow-x-auto text-[11px] text-emerald-200">
+                    <code>{command}</code>
+                  </pre>
+                ))}
+              </div>
+            ) : null}
+            {executionResult ? (
+              <div className="space-y-1 rounded-md border border-emerald-300/20 bg-emerald-500/10 p-2">
+                <p className="text-[10px] uppercase tracking-widest text-emerald-100">AI completed and tested</p>
+                <p className="text-xs text-emerald-50/80">{executionResult.report.summary}</p>
+                {executionResult.report.testsRun.length ? (
+                  <p className="text-[11px] text-emerald-100/70">
+                    Tests: {executionResult.report.testsRun.slice(0, 3).join(", ")}
+                  </p>
+                ) : null}
+                {executionResult.issueUrl ? (
+                  <a
+                    href={executionResult.issueUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-[11px] font-medium text-emerald-100 underline underline-offset-4"
+                  >
+                    GitHub record
+                  </a>
+                ) : null}
+                {executionResult.issueError ? <p className="text-[11px] text-amber-200">{executionResult.issueError}</p> : null}
+              </div>
+            ) : null}
+            <div className="flex items-center justify-between">
+              <Badge className={PRIORITY_TONES[item.priority]}>{item.priority}</Badge>
+              <span className="text-xs text-white/46">{item.estimate}</span>
+            </div>
+          </article>
+        );
+      })}
+    </div>
+  );
+
   return (
     <Card>
       <CardHeader>
@@ -879,6 +1053,7 @@ export function AIBacklogKanban({ projects = [] }: { projects?: ProjectOption[] 
                 setVoiceStatus(null);
                 setExecutionError(null);
                 setCardExecutionResults({});
+                setCopiedCommandsKey(null);
                 clearBacklogFilters();
                 if (typeof window !== "undefined") {
                   window.localStorage.removeItem(STORAGE_KEY);
@@ -969,136 +1144,29 @@ export function AIBacklogKanban({ projects = [] }: { projects?: ProjectOption[] 
             {hasActiveFilters ? <span>Filters active</span> : null}
           </div>
 
-          <div className="grid gap-4 md:grid-cols-3">
-            {COLUMNS.map((column) => {
-              const columnIndex = COLUMNS.indexOf(column);
+          <div className="md:hidden">
+            <Tabs value={activeMobileColumn} onValueChange={(value) => setActiveMobileColumn(value as BacklogItem["column"])}>
+              <TabsList
+                variant="line"
+                className="w-full justify-start gap-1 overflow-x-auto rounded-xl border border-white/8 bg-black/25 p-1"
+              >
+                {COLUMNS.map((column) => (
+                  <TabsTrigger key={column} value={column} className="min-w-[7rem]">
+                    {COLUMN_LABELS[column]}
+                    <span className="ml-1 text-[0.68rem] opacity-75">({filteredGrouped[column].length})</span>
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+              {COLUMNS.map((column) => (
+                <TabsContent key={column} value={column} className="mt-3">
+                  {renderColumn(column)}
+                </TabsContent>
+              ))}
+            </Tabs>
+          </div>
 
-              return (
-                <div key={column} className="space-y-3 rounded-[1.1rem] border border-white/8 bg-white/[0.03] p-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-2">
-                      <h4 className="text-sm font-semibold text-white/76">{COLUMN_LABELS[column]}</h4>
-                      <Badge variant="outline" className="h-5 px-2 text-[0.62rem]">
-                        {filteredGrouped[column].length}
-                      </Badge>
-                    </div>
-                    {column === "TODO" ? (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="icon-sm"
-                        onClick={openNewTodoCard}
-                        title="Add TODO card"
-                        aria-label="Add TODO card"
-                      >
-                        <Plus className="h-4 w-4" />
-                      </Button>
-                    ) : null}
-                  </div>
-                  {filteredGrouped[column].length === 0 ? (
-                    <p className="rounded-[0.9rem] border border-dashed border-white/10 p-3 text-xs text-white/42">
-                      {hasActiveFilters ? "No cards match these filters." : "No cards yet."}
-                    </p>
-                  ) : null}
-                  {filteredGrouped[column].map((item, itemIndex) => {
-                    const executionKey = cardExecutionKey(item);
-                    const executionResult = cardExecutionResults[executionKey];
-                    const running = runningCardKey === executionKey;
-                    const canMoveLeft = columnIndex > 0;
-                    const canMoveRight = columnIndex < COLUMNS.length - 1;
-
-                    return (
-                      <article
-                        key={`${column}-${item.title}-${itemIndex}`}
-                        className="space-y-2 rounded-[0.9rem] border border-white/8 bg-black/20 p-3"
-                      >
-                        <div className="flex items-start justify-between gap-2">
-                          <p className="text-sm font-medium text-white">{item.title}</p>
-                          <div className="flex items-center gap-1">
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon-xs"
-                              onClick={() => moveCardToColumn(item, COLUMNS[columnIndex - 1] as BacklogItem["column"])}
-                              disabled={!canMoveLeft || runningCardKey !== null}
-                              title="Move left"
-                              aria-label="Move left"
-                            >
-                              <ArrowLeft className="h-3.5 w-3.5" />
-                            </Button>
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon-xs"
-                              onClick={() => moveCardToColumn(item, COLUMNS[columnIndex + 1] as BacklogItem["column"])}
-                              disabled={!canMoveRight || runningCardKey !== null}
-                              title="Move right"
-                              aria-label="Move right"
-                            >
-                              <ArrowRight className="h-3.5 w-3.5" />
-                            </Button>
-                            <Button
-                              type="button"
-                              variant={executionResult ? "secondary" : "outline"}
-                              size="icon-sm"
-                              onClick={() => completeCardWithAi(item)}
-                              disabled={runningCardKey !== null || !!executionResult}
-                              title="Complete this card with AI"
-                              aria-label="Complete this card with AI"
-                            >
-                              {running ? (
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                              ) : (
-                                <WandSparkles className="h-4 w-4" />
-                              )}
-                            </Button>
-                          </div>
-                        </div>
-                        <p className="text-xs whitespace-pre-line text-white/56">{item.summary}</p>
-                        {item.commands.length ? (
-                          <div className="space-y-1 rounded-md border border-white/10 bg-black/30 p-2">
-                            <p className="text-[10px] uppercase tracking-widest text-white/45">Codex CLI Commands</p>
-                            {item.commands.map((command) => (
-                              <pre key={`${item.title}-${command}`} className="overflow-x-auto text-[11px] text-emerald-200">
-                                <code>{command}</code>
-                              </pre>
-                            ))}
-                          </div>
-                        ) : null}
-                        {executionResult ? (
-                          <div className="space-y-1 rounded-md border border-emerald-300/20 bg-emerald-500/10 p-2">
-                            <p className="text-[10px] uppercase tracking-widest text-emerald-100">AI completed and tested</p>
-                            <p className="text-xs text-emerald-50/80">{executionResult.report.summary}</p>
-                            {executionResult.report.testsRun.length ? (
-                              <p className="text-[11px] text-emerald-100/70">
-                                Tests: {executionResult.report.testsRun.slice(0, 3).join(", ")}
-                              </p>
-                            ) : null}
-                            {executionResult.issueUrl ? (
-                              <a
-                                href={executionResult.issueUrl}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="text-[11px] font-medium text-emerald-100 underline underline-offset-4"
-                              >
-                                GitHub record
-                              </a>
-                            ) : null}
-                            {executionResult.issueError ? (
-                              <p className="text-[11px] text-amber-200">{executionResult.issueError}</p>
-                            ) : null}
-                          </div>
-                        ) : null}
-                        <div className="flex items-center justify-between">
-                          <Badge className={PRIORITY_TONES[item.priority]}>{item.priority}</Badge>
-                          <span className="text-xs text-white/46">{item.estimate}</span>
-                        </div>
-                      </article>
-                    );
-                  })}
-                </div>
-              );
-            })}
+          <div className="hidden gap-4 md:grid md:grid-cols-3">
+            {COLUMNS.map((column) => renderColumn(column))}
           </div>
         </div>
 
